@@ -1,0 +1,4 @@
+name: block_stack_target
+modelname: replace_with_robotwin_modelname
+mesh_path: assets/replace_with_target_mesh.obj
+symmetry: none

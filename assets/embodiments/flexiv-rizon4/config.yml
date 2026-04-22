@@ -1,0 +1,55 @@
+urdf_path: "./rizon4_robotwin.urdf"
+srdf_path: "./rizon4.srdf"
+joint_stiffness: 1000
+joint_damping: 200
+gripper_stiffness: 1000
+gripper_damping: 200
+move_group: ["closed_fingers_tcp", "closed_fingers_tcp"]
+ee_joints: ["closed_fingers_tcp_joint", "closed_fingers_tcp_joint"]
+arm_joints_name:
+  - ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+  - ["joint1", "joint2", "joint3", "joint4", "joint5", "joint6", "joint7"]
+gripper_name:
+  - base: "finger_width_joint"
+    mimic:
+      - ["left_outer_knuckle_joint", 9.404, -0.155]
+      - ["left_inner_knuckle_joint", 9.404, -0.155]
+      - ["left_inner_finger_joint", -9.404, 0.155]
+      - ["right_outer_knuckle_joint", 9.404, -0.155]
+      - ["right_inner_knuckle_joint", 9.404, -0.155]
+      - ["right_inner_finger_joint", -9.404, 0.155]
+  - base: "finger_width_joint"
+    mimic:
+      - ["left_outer_knuckle_joint", 9.404, -0.155]
+      - ["left_inner_knuckle_joint", 9.404, -0.155]
+      - ["left_inner_finger_joint", -9.404, 0.155]
+      - ["right_outer_knuckle_joint", 9.404, -0.155]
+      - ["right_inner_knuckle_joint", 9.404, -0.155]
+      - ["right_inner_finger_joint", -9.404, 0.155]
+gripper_bias: 0.0
+gripper_scale: [0.0, 0.08]
+homestate:
+  - [0.0, -0.69813, 0.0, 1.570796, 0.0, 0.69813, 0.0]
+  - [0.0, -0.69813, 0.0, 1.570796, 0.0, 0.69813, 0.0]
+# RoboTwin's grasp pipeline already constructs a TCP-centered target pose with
+# a built-in 0.12 m offset convention. GN01 exposes `closed_fingers_tcp`
+# directly, so the planning end link should stay at the TCP and not apply any
+# extra rotation compensation here.
+delta_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+global_trans_matrix: [[1, 0, 0], [0, 1, 0], [0, 0, 1]]
+robot_pose:
+  - [0.0, -0.65, 0.75, 0.707, 0.0, 0.0, 0.707]
+  - [0.0, -0.65, 0.75, 0.707, 0.0, 0.0, 0.707]
+planner: "mplib_RRT"
+dual_arm: False
+rotate_lim: [0.1, 0.8]
+arm_move_axis: ["z", "z"]
+arm_exec_mode: ["planner_path", "planner_path"]
+arm_interp_step: [0.03, 0.03]
+grasp_perfect_direction: ["top_down_little_left", "top_down_little_right"]
+static_camera_list:
+  - name: head_camera
+    type: D435
+    position: [0.12, -0.45, 1.30]
+    forward: [0.18, 0.60, -0.78]
+    left: [-1.0, 0.0, 0.0]

@@ -1,0 +1,74 @@
+collision_spheres:
+  base_link:
+    - center: [0.0, 0.0, 0.08]
+      radius: 0.10
+    - center: [0.0, 0.0, 0.16]
+      radius: 0.08
+  link1:
+    - center: [0.0, 0.0, 0.10]
+      radius: 0.07
+  link2:
+    - center: [0.0, 0.015, 0.08]
+      radius: 0.065
+    - center: [0.0, 0.02, 0.17]
+      radius: 0.06
+  link3:
+    - center: [0.0, 0.018, 0.08]
+      radius: 0.06
+    - center: [0.0, 0.025, 0.17]
+      radius: 0.055
+  link4:
+    - center: [-0.01, -0.015, 0.08]
+      radius: 0.06
+    - center: [-0.015, -0.02, 0.16]
+      radius: 0.055
+  link5:
+    - center: [-0.01, 0.012, 0.08]
+      radius: 0.055
+    - center: [-0.015, 0.02, 0.17]
+      radius: 0.05
+  link6:
+    - center: [0.0, 0.015, 0.08]
+      radius: 0.05
+    - center: [0.0, 0.02, 0.16]
+      radius: 0.045
+  link7:
+    - center: [-0.007, 0.03, 0.04]
+      radius: 0.045
+    - center: [-0.01, 0.055, 0.09]
+      radius: 0.04
+  flange:
+    - center: [0.0, 0.0, 0.02]
+      radius: 0.035
+  closed_fingers_tcp:
+    - center: [0.0, 0.0, 0.0]
+      radius: 0.008
+  grav_base_link:
+    - center: [0.0, 0.0, 0.05]
+      radius: 0.035
+    - center: [0.0, 0.0, 0.11]
+      radius: 0.03
+  left_outer_bar:
+    - center: [0.0, 0.0, 0.03]
+      radius: 0.016
+  left_inner_bar:
+    - center: [0.0, 0.0, 0.03]
+      radius: 0.014
+  left_finger_mount:
+    - center: [0.0, 0.0, 0.025]
+      radius: 0.014
+  left_finger_tip:
+    - center: [0.0, 0.0, 0.016]
+      radius: 0.012
+  right_outer_bar:
+    - center: [0.0, 0.0, 0.03]
+      radius: 0.016
+  right_inner_bar:
+    - center: [0.0, 0.0, 0.03]
+      radius: 0.014
+  right_finger_mount:
+    - center: [0.0, 0.0, 0.025]
+      radius: 0.014
+  right_finger_tip:
+    - center: [0.0, 0.0, 0.016]
+      radius: 0.012
