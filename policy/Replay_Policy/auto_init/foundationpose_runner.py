@@ -10,8 +10,10 @@ from pathlib import Path
 import numpy as np
 
 try:
+    from .path_utils import REPO_ROOT, resolve_repo_path
     from ..坐标系转换 import pose6d_to_matrix, pose7d_wxyz_to_matrix
 except ImportError:
+    from auto_init.path_utils import REPO_ROOT, resolve_repo_path
     from 坐标系转换 import pose6d_to_matrix, pose7d_wxyz_to_matrix
 
 
@@ -40,7 +42,9 @@ def run_foundationpose(
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if mode == "precomputed":
-        pose_file = Path(fp_cfg["path"].format(cache_dir=cache_dir, episode_index=episode_index))
+        pose_file = resolve_repo_path(
+            fp_cfg["path"].format(cache_dir=cache_dir, episode_index=episode_index)
+        )
         return _load_pose_matrix(pose_file), pose_file
 
     if mode != "command":
@@ -63,7 +67,7 @@ def run_foundationpose(
             "auto_init.foundationpose.command is empty. "
             "Fill it with a server-side command that writes a pose json."
         )
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, cwd=str(REPO_ROOT))
     return _load_pose_matrix(output_path), output_path
 
 

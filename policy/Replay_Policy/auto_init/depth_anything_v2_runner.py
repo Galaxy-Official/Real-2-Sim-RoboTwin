@@ -6,6 +6,11 @@ import shlex
 import subprocess
 from pathlib import Path
 
+try:
+    from .path_utils import REPO_ROOT, resolve_repo_path
+except ImportError:
+    from auto_init.path_utils import REPO_ROOT, resolve_repo_path
+
 
 def run_depth_anything(config: dict, image_path: str, cache_dir: str, episode_index: int) -> Path:
     depth_cfg = config.get("auto_init", {}).get("depth_anything", {})
@@ -23,7 +28,9 @@ def run_depth_anything(config: dict, image_path: str, cache_dir: str, episode_in
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
     if mode == "precomputed":
-        precomputed = Path(depth_cfg["path"].format(cache_dir=cache_dir, episode_index=episode_index))
+        precomputed = resolve_repo_path(
+            depth_cfg["path"].format(cache_dir=cache_dir, episode_index=episode_index)
+        )
         if not precomputed.is_file():
             raise FileNotFoundError(f"Precomputed depth file not found: {precomputed}")
         return precomputed
@@ -44,7 +51,7 @@ def run_depth_anything(config: dict, image_path: str, cache_dir: str, episode_in
             "auto_init.depth_anything.command is empty. "
             "Fill it with a server-side command that writes a depth file."
         )
-    subprocess.run(command, check=True)
+    subprocess.run(command, check=True, cwd=str(REPO_ROOT))
     if not output_path.is_file():
         raise RuntimeError(f"Depth Anything command completed but no depth file was created: {output_path}")
     return output_path

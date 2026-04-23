@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from copy import deepcopy
 from pathlib import Path
 
 try:
     from .camera_calibration import prepare_frame_and_intrinsics
+    from .path_utils import resolve_repo_path
     from ..replay_lerobot_loader import (
         extract_first_frame,
         load_first_frame_state,
@@ -13,6 +15,7 @@ try:
     )
 except ImportError:
     from auto_init.camera_calibration import prepare_frame_and_intrinsics
+    from auto_init.path_utils import resolve_repo_path
     from replay_lerobot_loader import extract_first_frame, load_first_frame_state, resolve_episode_video_path
 
 
@@ -22,9 +25,13 @@ def extract_first_frame_inputs(
     episode_index: int,
     frame_image_override: str | None = None,
 ) -> dict:
-    auto_init_cfg = config.get("auto_init", {})
-    cache_dir = Path(auto_init_cfg.get("first_frame_cache_dir", "policy/Replay_Policy/init_meta/cache"))
+    auto_init_cfg = deepcopy(config.get("auto_init", {}))
+    cache_dir = resolve_repo_path(auto_init_cfg.get("first_frame_cache_dir", "policy/Replay_Policy/init_meta/cache"))
     cache_dir.mkdir(parents=True, exist_ok=True)
+
+    calib_cfg = auto_init_cfg.get("camera_calibration")
+    if isinstance(calib_cfg, dict) and calib_cfg.get("path"):
+        calib_cfg["path"] = str(resolve_repo_path(calib_cfg["path"]))
 
     frame_path, video_path = _resolve_first_frame(
         auto_init_cfg=auto_init_cfg,

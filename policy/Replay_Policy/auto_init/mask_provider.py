@@ -4,6 +4,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+try:
+    from .path_utils import resolve_repo_path
+except ImportError:
+    from auto_init.path_utils import resolve_repo_path
+
 
 def resolve_mask_path(config: dict, data_dir: str, episode_index: int) -> Path:
     mask_cfg = config.get("auto_init", {}).get("mask", {})
@@ -19,7 +24,7 @@ def resolve_mask_path(config: dict, data_dir: str, episode_index: int) -> Path:
             )
         )
     elif mode == "explicit":
-        mask_path = Path(mask_cfg["path"])
+        mask_path = resolve_repo_path(mask_cfg["path"])
     else:
         raise ValueError(
             f"Unsupported mask mode: {mode}. "

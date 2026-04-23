@@ -22,6 +22,7 @@ from auto_init.camera_calibration import maybe_undistort_mask
 from auto_init.depth_anything_v2_runner import run_depth_anything
 from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
+from auto_init.path_utils import REPLAY_POLICY_DIR, resolve_cli_path, resolve_existing_path, resolve_repo_path
 from auto_init.real_data_reader import extract_first_frame_inputs
 from 坐标系转换 import (
     build_real_T_cam_from_eef,
@@ -47,8 +48,15 @@ def main() -> None:
     parser.add_argument("--frame-image", default=None)
     args = parser.parse_args()
 
-    config = load_yaml(args.config)
-    object_config = load_yaml(config["object_config_path"])
+    config_path = resolve_cli_path(args.config, fallback_base=REPLAY_POLICY_DIR)
+    config = load_yaml(config_path)
+    object_config_path = resolve_repo_path(config["object_config_path"])
+    object_config = load_yaml(object_config_path)
+    mesh_path = resolve_existing_path(
+        object_config["mesh_path"],
+        REPLAY_POLICY_DIR,
+        object_config_path.parent,
+    )
 
     first_frame = extract_first_frame_inputs(
         config,
@@ -56,7 +64,7 @@ def main() -> None:
         args.episode_index,
         frame_image_override=args.frame_image,
     )
-    cache_dir = str(Path(config["auto_init"]["first_frame_cache_dir"]).resolve())
+    cache_dir = str(resolve_repo_path(config["auto_init"]["first_frame_cache_dir"]))
     mask_path = resolve_mask_path(config, args.data_dir, args.episode_index)
     mask_path = maybe_undistort_mask(
         auto_init_cfg=config.get("auto_init", {}),
@@ -77,7 +85,7 @@ def main() -> None:
         depth_path=str(depth_path),
         mask_path=str(mask_path),
         intrinsics_path=first_frame["intrinsics_path"],
-        mesh_path=object_config["mesh_path"],
+        mesh_path=str(mesh_path),
         cache_dir=cache_dir,
         episode_index=args.episode_index,
     )
@@ -106,7 +114,7 @@ def main() -> None:
         "mask_path": str(mask_path),
         "depth_path": str(depth_path),
         "foundationpose_output_path": str(fp_output_path),
-        "mesh_path": object_config["mesh_path"],
+        "mesh_path": str(mesh_path),
         "intrinsics": first_frame["intrinsics"],
         "intrinsics_matrix": first_frame["intrinsics_matrix"],
         "calibration": first_frame["calibration"],

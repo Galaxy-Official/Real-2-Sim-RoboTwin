@@ -19,17 +19,18 @@ if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
 from replay_lerobot_loader import extract_first_frame, load_dataset_info, resolve_episode_video_path
+from auto_init.path_utils import resolve_cli_path, resolve_repo_path
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--config", default="policy/Replay_Policy/deploy_policy.yml")
+    parser.add_argument("--config", default=str(REPLAY_POLICY_DIR / "deploy_policy.yml"))
     parser.add_argument("--data-dir", required=True)
     parser.add_argument("--episode-index", required=True, type=int)
     parser.add_argument("--video-key", default=None)
     parser.add_argument(
         "--output-dir",
-        default="policy/Replay_Policy/init_meta/cache/step1_debug",
+        default=None,
         help="Directory for the extracted first frame and debug summary JSON.",
     )
     return parser.parse_args()
@@ -52,13 +53,18 @@ def extract_first_frame_for_debug(video_path: Path, output_path: Path) -> str:
 
 def main() -> None:
     args = parse_args()
-    config = load_yaml(args.config)
+    config_path = resolve_cli_path(args.config, fallback_base=REPLAY_POLICY_DIR)
+    config = load_yaml(config_path)
     info = load_dataset_info(args.data_dir)
     auto_init_cfg = config.get("auto_init", {})
     video_key = args.video_key or auto_init_cfg.get("wrist_video_key", "observation.images.wrist")
 
     video_path = resolve_episode_video_path(args.data_dir, args.episode_index, video_key=video_key)
-    output_dir = Path(args.output_dir)
+    if args.output_dir:
+        output_dir = resolve_cli_path(args.output_dir)
+    else:
+        cache_dir = resolve_repo_path(auto_init_cfg.get("first_frame_cache_dir", "policy/Replay_Policy/init_meta/cache"))
+        output_dir = cache_dir / "step1_debug"
     frame_path = output_dir / f"episode_{args.episode_index:06d}_wrist_first_frame.png"
     extractor = extract_first_frame_for_debug(video_path=video_path, output_path=frame_path)
 
