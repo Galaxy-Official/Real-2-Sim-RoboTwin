@@ -33,7 +33,7 @@ server's `policy/Replay_Policy/` directory.
    - `modelname`
    - `mesh_path`
 2. Update `policy/Replay_Policy/deploy_policy.yml`
-   - camera intrinsics
+   - camera calibration path and `calibration_image_size`
    - `depth_anything.command`
    - `foundationpose.command`
    - optional mask template path
@@ -73,9 +73,115 @@ translation = [0.000000, 0.136103, 0.074117]
 rotvec      = [-0.880866, -1.384416, 0.881969]
 ```
 
+## Camera Calibration
+
+The first-frame pipeline now supports the fisheye calibration file
+`policy/Replay_Policy/auto_init/fisheye_calib_result.npz` with keys `K`,
+`D`, and `rms`.
+
+The current bundled values are:
+
+```text
+K =
+[[472.38120281,   0.00000000, 755.47468007],
+ [  0.00000000, 474.16849472, 719.68671775],
+ [  0.00000000,   0.00000000,   1.00000000]]
+
+D = [-0.01698907, 0.00055807, -0.00500646, 0.00096790]
+rms = 0.1845658471820628
+```
+
+`build_init_meta.py` uses this calibration to:
+
+- undistort the extracted wrist RGB frame
+- undistort the object mask with nearest-neighbor interpolation
+- compute the new pinhole camera matrix `new_K`
+- write `episode_xxxxxx_intrinsics.json` for FoundationPose
+
+Important: LeRobot metadata reports the wrist video as `640x480`, but the
+calibration principal point is around `(755, 720)`. If the calibration was done
+at a different source resolution, set:
+
+```yaml
+auto_init:
+  camera_calibration:
+    calibration_image_size: [SOURCE_WIDTH, SOURCE_HEIGHT]
+```
+
+Without the correct source resolution, `K` cannot be scaled reliably and
+FoundationPose translation can be biased.
+
+### Updating Camera Intrinsics After Recalibration
+
+When the wrist camera is recalibrated, update the auto-init camera config in
+`policy/Replay_Policy/deploy_policy.yml`.
+
+Recommended path:
+
+1. Export the new calibration as an `.npz` file with the same keys:
+   - `K`: `3x3` camera matrix
+   - `D`: fisheye distortion coefficients, usually `4x1` or `4`
+   - `rms`: optional calibration error
+2. Put the file here:
+   - `policy/Replay_Policy/auto_init/fisheye_calib_result.npz`
+3. Check the video resolution:
+   - current wrist videos are `640x480`
+4. If calibration images were also `640x480`, keep:
+
+```yaml
+auto_init:
+  camera_calibration:
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    calibration_image_size: null
+```
+
+5. If calibration images were not `640x480`, set the original calibration
+   resolution explicitly:
+
+```yaml
+auto_init:
+  camera_calibration:
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    calibration_image_size: [SOURCE_WIDTH, SOURCE_HEIGHT]
+```
+
+For example, if calibration was done at `1280x960` but replay videos are
+`640x480`:
+
+```yaml
+auto_init:
+  camera_calibration:
+    calibration_image_size: [1280, 960]
+```
+
+The code will scale `K` from the calibration resolution to the actual extracted
+video frame resolution before computing the undistorted pinhole `new_K`.
+
+If a future preprocessing pipeline outputs already-undistorted images, disable
+runtime fisheye undistortion and provide the pinhole intrinsics directly:
+
+```yaml
+auto_init:
+  camera_calibration:
+    path: null
+  undistort:
+    enabled: false
+  intrinsics:
+    fx: YOUR_PINHOLE_FX
+    fy: YOUR_PINHOLE_FY
+    cx: YOUR_PINHOLE_CX
+    cy: YOUR_PINHOLE_CY
+```
+
+In that mode, the pipeline will pass the extracted RGB frame directly to Depth
+Anything V2 and FoundationPose, and `episode_xxxxxx_intrinsics.json` will be
+written from the manual `intrinsics` block.
+
 ## Wrapper Roles
 
-`run_depth_anything_metric.py`
+```
+run_depth_anything_metric.py
+```
 
 - Purpose: convert one wrist-camera RGB frame into a depth map that the replay
   pipeline can hand to FoundationPose.
@@ -86,7 +192,9 @@ rotvec      = [-0.880866, -1.384416, 0.881969]
   - supports explicit `--checkpoint`
   - can optionally write a small metadata JSON with `--meta-output`
 
-`run_foundationpose_once.py`
+```
+run_foundationpose_once.py
+```
 
 - Purpose: run the first-frame registration step from FoundationPose and export
   `T_cam_obj` in a JSON format that `build_init_meta.py` already understands.
@@ -157,7 +265,7 @@ Create Python environments or install into the one used by RoboTwin. At minimum
 the replay/auto-init scripts expect:
 
 ```bash
-pip install numpy scipy pyyaml pyarrow
+pip install numpy scipy pyyaml pyarrow pillow opencv-python
 ```
 
 You will also need the dependencies required by the two cloned repos, following

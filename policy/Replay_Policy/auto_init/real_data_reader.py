@@ -2,16 +2,17 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 try:
+    from .camera_calibration import prepare_frame_and_intrinsics
     from ..replay_lerobot_loader import (
         extract_first_frame,
         load_first_frame_state,
         resolve_episode_video_path,
     )
 except ImportError:
+    from auto_init.camera_calibration import prepare_frame_and_intrinsics
     from replay_lerobot_loader import extract_first_frame, load_first_frame_state, resolve_episode_video_path
 
 
@@ -36,26 +37,24 @@ def extract_first_frame_inputs(
     state_column = auto_init_cfg.get("state_column", config.get("state_column", "observation.state"))
     real_eef_pose = load_first_frame_state(data_dir, episode_index, state_column=state_column)
 
-    intrinsics_cfg = auto_init_cfg.get("intrinsics", {})
-    intrinsics = {
-        "fx": float(intrinsics_cfg.get("fx", 0.0)),
-        "fy": float(intrinsics_cfg.get("fy", 0.0)),
-        "cx": float(intrinsics_cfg.get("cx", 0.0)),
-        "cy": float(intrinsics_cfg.get("cy", 0.0)),
-    }
+    camera_inputs = prepare_frame_and_intrinsics(
+        auto_init_cfg=auto_init_cfg,
+        frame_path=frame_path,
+        cache_dir=cache_dir,
+        episode_index=episode_index,
+    )
 
     return {
-        "frame_path": str(frame_path),
+        "frame_path": camera_inputs["frame_path"],
+        "raw_frame_path": camera_inputs["raw_frame_path"],
         "video_path": str(video_path) if video_path is not None else None,
         "real_eef_pose6d": real_eef_pose.tolist(),
-        "intrinsics": intrinsics,
-        "intrinsics_path": _write_intrinsics(cache_dir / f"episode_{episode_index:06d}_intrinsics.json", intrinsics),
+        "intrinsics": camera_inputs["intrinsics"],
+        "intrinsics_matrix": camera_inputs["intrinsics_matrix"],
+        "intrinsics_path": camera_inputs["intrinsics_path"],
+        "calibration": camera_inputs["calibration"],
+        "undistorted": camera_inputs["undistorted"],
     }
-
-
-def _write_intrinsics(path: Path, intrinsics: dict) -> str:
-    path.write_text(json.dumps(intrinsics, indent=2, ensure_ascii=False), encoding="utf-8")
-    return str(path)
 
 
 def _resolve_first_frame(auto_init_cfg: dict, data_dir: str, episode_index: int, cache_dir: Path, frame_image_override: str | None):

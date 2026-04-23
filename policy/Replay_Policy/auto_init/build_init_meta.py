@@ -18,6 +18,7 @@ if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
 from auto_init.aloha_extrinsics import load_cam_T_eef, load_camera_convention
+from auto_init.camera_calibration import maybe_undistort_mask
 from auto_init.depth_anything_v2_runner import run_depth_anything
 from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
@@ -57,6 +58,13 @@ def main() -> None:
     )
     cache_dir = str(Path(config["auto_init"]["first_frame_cache_dir"]).resolve())
     mask_path = resolve_mask_path(config, args.data_dir, args.episode_index)
+    mask_path = maybe_undistort_mask(
+        auto_init_cfg=config.get("auto_init", {}),
+        mask_path=mask_path,
+        cache_dir=cache_dir,
+        episode_index=args.episode_index,
+        calibration=first_frame.get("calibration"),
+    )
     depth_path = run_depth_anything(
         config=config,
         image_path=first_frame["frame_path"],
@@ -92,12 +100,16 @@ def main() -> None:
         "object_name": object_config.get("name", object_config.get("modelname", "target_object")),
         "target_object_modelname": object_config.get("modelname", "target_object"),
         "first_frame_image": first_frame["frame_path"],
+        "raw_first_frame_image": first_frame["raw_frame_path"],
+        "first_frame_undistorted": first_frame["undistorted"],
         "wrist_video_path": first_frame["video_path"],
         "mask_path": str(mask_path),
         "depth_path": str(depth_path),
         "foundationpose_output_path": str(fp_output_path),
         "mesh_path": object_config["mesh_path"],
         "intrinsics": first_frame["intrinsics"],
+        "intrinsics_matrix": first_frame["intrinsics_matrix"],
+        "calibration": first_frame["calibration"],
         "cam_T_obj": np.asarray(cam_T_obj, dtype=float).tolist(),
         "cam_T_eef": np.asarray(cam_T_eef, dtype=float).tolist(),
         "camera_convention": camera_convention,
