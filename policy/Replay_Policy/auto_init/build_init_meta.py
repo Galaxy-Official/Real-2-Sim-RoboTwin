@@ -78,6 +78,7 @@ def main() -> None:
         image_path=first_frame["frame_path"],
         cache_dir=cache_dir,
         episode_index=args.episode_index,
+        intrinsics_path=first_frame["intrinsics_path"],
     )
     cam_T_obj, fp_output_path = run_foundationpose(
         config=config,

@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
-"""Run Depth Anything V2 on a single RGB image and save depth as .npy."""
+"""Run Depth Anything 3 on a single RGB image and save metric depth as .npy."""
 
 from __future__ import annotations
 
 import argparse
-import importlib
 import json
 import sys
 from pathlib import Path
@@ -12,34 +11,42 @@ from pathlib import Path
 import numpy as np
 
 
-MODEL_CONFIGS = {
-    "vits": {"encoder": "vits", "features": 64, "out_channels": [48, 96, 192, 384]},
-    "vitb": {"encoder": "vitb", "features": 128, "out_channels": [96, 192, 384, 768]},
-    "vitl": {"encoder": "vitl", "features": 256, "out_channels": [256, 512, 1024, 1024]},
-    "vitg": {"encoder": "vitg", "features": 384, "out_channels": [1536, 1536, 1536, 1536]},
-}
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--repo-root", required=True, help="Path to the cloned Depth-Anything-V2 repo.")
+    parser.add_argument(
+        "--repo-root",
+        default=None,
+        help="Optional path to the cloned Depth-Anything-3 repo. Used when it is not pip-installed.",
+    )
     parser.add_argument("--image", required=True, help="Single RGB image path.")
     parser.add_argument("--output", required=True, help="Output .npy depth path.")
-    parser.add_argument("--checkpoint", default=None, help="Optional checkpoint override.")
-    parser.add_argument("--encoder", default="vitl", choices=sorted(MODEL_CONFIGS))
     parser.add_argument(
-        "--mode",
-        default="metric",
-        choices=["metric", "relative", "auto"],
-        help="Prefer metric-depth weights for FoundationPose. 'auto' tries metric first.",
+        "--intrinsics",
+        required=True,
+        help="FoundationPose intrinsics JSON. Used to convert DA3METRIC-LARGE output to meters.",
     )
     parser.add_argument(
-        "--metric-dataset",
-        default="hypersim",
-        help="Metric checkpoint family name, e.g. hypersim or vkitti.",
+        "--model-dir",
+        default="depth-anything/da3metric-large",
+        help="Hugging Face model id or local model directory for Depth Anything 3.",
     )
-    parser.add_argument("--input-size", default=518, type=int)
-    parser.add_argument("--max-depth", default=20.0, type=float)
+    parser.add_argument(
+        "--metric-scale",
+        default="da3metric",
+        choices=["da3metric", "already_metric"],
+        help="DA3METRIC-LARGE needs metric_depth=focal*net_output/300; DA3NESTED output is already meters.",
+    )
+    parser.add_argument(
+        "--process-res",
+        default=504,
+        type=int,
+        help="Depth Anything 3 processing resolution.",
+    )
+    parser.add_argument(
+        "--process-res-method",
+        default="upper_bound_resize",
+        choices=["upper_bound_resize", "lower_bound_resize"],
+    )
     parser.add_argument("--device", default=None, help="cuda / cpu / mps. Defaults to best available.")
     parser.add_argument(
         "--meta-output",
@@ -51,53 +58,57 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    repo_root = Path(args.repo_root).resolve()
+    repo_root = Path(args.repo_root).resolve() if args.repo_root else None
     image_path = Path(args.image).resolve()
     output_path = Path(args.output).resolve()
+    intrinsics_path = Path(args.intrinsics).resolve()
 
-    if not repo_root.is_dir():
+    if repo_root is not None and not repo_root.is_dir():
         raise FileNotFoundError(f"Depth Anything repo not found: {repo_root}")
     if not image_path.is_file():
         raise FileNotFoundError(f"Input image not found: {image_path}")
+    if not intrinsics_path.is_file():
+        raise FileNotFoundError(f"Intrinsics JSON not found: {intrinsics_path}")
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
 
-    torch, cv2 = _import_runtime()
+    if repo_root is not None:
+        _add_depth_anything_3_to_sys_path(repo_root)
+
+    torch, DepthAnything3 = _import_runtime()
     device = _resolve_device(torch, args.device)
-    model_cls, loaded_mode = _load_model_class(repo_root, args.mode)
-    checkpoint_path = _resolve_checkpoint_path(repo_root, args, loaded_mode)
-    model = _build_model(model_cls, loaded_mode, args.encoder, args.max_depth)
+    K = _load_intrinsics_matrix(intrinsics_path)
+    focal_px = float((K[0, 0] + K[1, 1]) * 0.5)
 
-    state_dict = _load_checkpoint(torch, checkpoint_path)
-    _load_model_state(model, state_dict, checkpoint_path)
+    model = DepthAnything3.from_pretrained(args.model_dir).to(device)
+    if hasattr(model, "eval"):
+        model = model.eval()
 
-    model = model.to(device).eval()
-    raw_img = cv2.imread(str(image_path), cv2.IMREAD_COLOR)
-    if raw_img is None:
-        raise RuntimeError(f"Failed to read RGB image with OpenCV: {image_path}")
+    with torch.inference_mode():
+        prediction = model.inference(
+            image=[str(image_path)],
+            process_res=args.process_res,
+            process_res_method=args.process_res_method,
+        )
 
-    try:
-        depth = model.infer_image(raw_img, input_size=args.input_size)
-    except TypeError:
-        depth = model.infer_image(raw_img)
-
-    depth = np.asarray(depth, dtype=np.float32)
-    if depth.ndim != 2:
-        raise ValueError(f"Expected 2D depth array, got shape {depth.shape}")
+    depth = _extract_single_depth(prediction)
+    depth = _scale_depth(depth, focal_px=focal_px, metric_scale=args.metric_scale)
+    depth = _resize_depth_to_image(depth, image_path)
     np.save(output_path, depth)
 
     if args.meta_output:
         meta_path = Path(args.meta_output).resolve()
         meta_path.parent.mkdir(parents=True, exist_ok=True)
         payload = {
-            "repo_root": str(repo_root),
+            "repo_root": None if repo_root is None else str(repo_root),
             "image_path": str(image_path),
             "output_path": str(output_path),
-            "checkpoint_path": str(checkpoint_path),
-            "encoder": args.encoder,
-            "mode": loaded_mode,
-            "input_size": args.input_size,
-            "max_depth": args.max_depth,
+            "intrinsics_path": str(intrinsics_path),
+            "model_dir": args.model_dir,
+            "metric_scale": args.metric_scale,
+            "focal_px": focal_px,
+            "process_res": args.process_res,
+            "process_res_method": args.process_res_method,
             "device": device,
             "depth_shape": list(depth.shape),
             "depth_dtype": str(depth.dtype),
@@ -108,19 +119,28 @@ def main() -> None:
 
     print(
         "[run_depth_anything_metric] "
-        f"Saved {loaded_mode} depth to {output_path} using {checkpoint_path.name}"
+        f"Saved Depth Anything 3 metric depth to {output_path} using {args.model_dir}"
     )
 
 
 def _import_runtime():
     try:
         import torch
-        import cv2
+        from depth_anything_3.api import DepthAnything3
     except ImportError as exc:
         raise ImportError(
-            "run_depth_anything_metric.py requires torch and opencv-python in the active environment."
+            "run_depth_anything_metric.py requires Depth Anything 3 and torch in the active environment. "
+            "Install the official Depth-Anything-3 repo, for example with `pip install -e third_party/Depth-Anything-3`."
         ) from exc
-    return torch, cv2
+    return torch, DepthAnything3
+
+
+def _add_depth_anything_3_to_sys_path(repo_root: Path) -> None:
+    for candidate in (repo_root / "src", repo_root):
+        if candidate.is_dir():
+            candidate_str = str(candidate)
+            if candidate_str not in sys.path:
+                sys.path.insert(0, candidate_str)
 
 
 def _resolve_device(torch, requested: str | None) -> str:
@@ -133,103 +153,60 @@ def _resolve_device(torch, requested: str | None) -> str:
     return "cpu"
 
 
-def _purge_depth_anything_modules() -> None:
-    for name in list(sys.modules):
-        if name == "depth_anything_v2" or name.startswith("depth_anything_v2."):
-            del sys.modules[name]
+def _load_intrinsics_matrix(path: Path) -> np.ndarray:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if "K" in payload:
+        return np.asarray(payload["K"], dtype=np.float64).reshape(3, 3)
+    K = np.eye(3, dtype=np.float64)
+    K[0, 0] = float(payload["fx"])
+    K[1, 1] = float(payload["fy"])
+    K[0, 2] = float(payload["cx"])
+    K[1, 2] = float(payload["cy"])
+    return K
 
 
-def _load_model_class(repo_root: Path, mode: str):
-    attempts: list[tuple[str, Path]] = []
-    if mode in {"metric", "auto"}:
-        attempts.append(("metric", repo_root / "metric_depth"))
-    if mode in {"relative", "auto"}:
-        attempts.append(("relative", repo_root))
-
-    errors: list[str] = []
-    for import_mode, import_root in attempts:
-        if not import_root.is_dir():
-            errors.append(f"{import_mode}: missing import root {import_root}")
-            continue
-        _purge_depth_anything_modules()
-        sys.path.insert(0, str(import_root))
-        try:
-            module = importlib.import_module("depth_anything_v2.dpt")
-            model_cls = getattr(module, "DepthAnythingV2")
-            return model_cls, import_mode
-        except Exception as exc:
-            errors.append(f"{import_mode}: {exc}")
-        finally:
-            if sys.path and sys.path[0] == str(import_root):
-                sys.path.pop(0)
-
-    raise ImportError(
-        "Failed to import DepthAnythingV2. "
-        f"Attempted modes: {', '.join(m for m, _ in attempts)}. Errors: {' | '.join(errors)}"
-    )
+def _extract_single_depth(prediction) -> np.ndarray:
+    if not hasattr(prediction, "depth"):
+        raise ValueError("Depth Anything 3 prediction does not contain a depth attribute.")
+    depth = prediction.depth
+    if isinstance(depth, (list, tuple)):
+        if len(depth) != 1:
+            raise ValueError(f"Expected one depth map, got {len(depth)}")
+        depth = depth[0]
+    if hasattr(depth, "detach"):
+        depth = depth.detach().cpu().numpy()
+    depth = np.asarray(depth, dtype=np.float32)
+    if depth.ndim == 3:
+        if depth.shape[0] != 1:
+            raise ValueError(f"Expected one depth map, got shape {depth.shape}")
+        depth = depth[0]
+    if depth.ndim != 2:
+        raise ValueError(f"Expected 2D depth array, got shape {depth.shape}")
+    return depth
 
 
-def _build_model(model_cls, loaded_mode: str, encoder: str, max_depth: float):
-    model_cfg = MODEL_CONFIGS[encoder].copy()
-    if loaded_mode == "metric":
-        try:
-            return model_cls(**model_cfg, max_depth=max_depth)
-        except TypeError:
-            pass
-    return model_cls(**model_cfg)
+def _scale_depth(depth: np.ndarray, focal_px: float, metric_scale: str) -> np.ndarray:
+    depth = np.asarray(depth, dtype=np.float32)
+    if metric_scale == "da3metric":
+        if focal_px <= 0:
+            raise ValueError(f"Invalid focal length for DA3METRIC scaling: {focal_px}")
+        depth = depth * np.float32(focal_px / 300.0)
+    return np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0).astype(np.float32)
 
 
-def _resolve_checkpoint_path(repo_root: Path, args: argparse.Namespace, loaded_mode: str) -> Path:
-    if args.checkpoint:
-        checkpoint_path = Path(args.checkpoint).expanduser().resolve()
-        if not checkpoint_path.is_file():
-            raise FileNotFoundError(f"Explicit checkpoint not found: {checkpoint_path}")
-        return checkpoint_path
-
-    candidates: list[Path] = []
-    if loaded_mode == "metric":
-        candidates.extend(
-            [
-                repo_root / "metric_depth" / "checkpoints" / f"depth_anything_v2_metric_{args.metric_dataset}_{args.encoder}.pth",
-                repo_root / "checkpoints" / f"depth_anything_v2_metric_{args.metric_dataset}_{args.encoder}.pth",
-            ]
-        )
-    else:
-        candidates.extend(
-            [
-                repo_root / "checkpoints" / f"depth_anything_v2_{args.encoder}.pth",
-                repo_root / f"depth_anything_v2_{args.encoder}.pth",
-            ]
-        )
-
-    for candidate in candidates:
-        if candidate.is_file():
-            return candidate.resolve()
-
-    raise FileNotFoundError(
-        "Could not find a Depth Anything checkpoint automatically. "
-        f"Tried: {[str(path) for path in candidates]}. "
-        "Pass --checkpoint explicitly if your file lives elsewhere."
-    )
-
-
-def _load_checkpoint(torch, checkpoint_path: Path):
-    payload = torch.load(str(checkpoint_path), map_location="cpu")
-    if isinstance(payload, dict):
-        for key in ("state_dict", "model", "module"):
-            if key in payload and isinstance(payload[key], dict):
-                return payload[key]
-    return payload
-
-
-def _load_model_state(model, state_dict, checkpoint_path: Path) -> None:
+def _resize_depth_to_image(depth: np.ndarray, image_path: Path) -> np.ndarray:
     try:
-        model.load_state_dict(state_dict, strict=True)
-    except RuntimeError as exc:
-        raise RuntimeError(
-            "Depth Anything checkpoint does not match the selected model config. "
-            f"Checkpoint: {checkpoint_path}"
-        ) from exc
+        from PIL import Image
+    except ImportError as exc:
+        raise ImportError("Pillow is required to align Depth Anything 3 output to the input image size.") from exc
+
+    with Image.open(image_path) as image:
+        width, height = image.size
+    if depth.shape == (height, width):
+        return depth.astype(np.float32)
+
+    resized = Image.fromarray(depth.astype(np.float32), mode="F").resize((width, height), Image.BILINEAR)
+    return np.asarray(resized, dtype=np.float32)
 
 
 if __name__ == "__main__":

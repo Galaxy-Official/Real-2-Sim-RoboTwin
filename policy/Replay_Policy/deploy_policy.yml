@@ -62,50 +62,46 @@ auto_init:
     mode: command
     output_template: "{cache_dir}/episode_{episode_index:06d}_depth.npy"
     # This argv list is passed directly to subprocess.run(...).
-    # Supported placeholders: {image_path} {output_path} {cache_dir} {episode_index}
+    # Supported placeholders: {image_path} {output_path} {intrinsics_path} {cache_dir} {episode_index}
     # Example:
     # command:
     #   - conda
     #   - run
     #   - -n
-    #   - depth-anything
+    #   - depth-anything-3
     #   - python
     #   - policy/Replay_Policy/auto_init/run_depth_anything_metric.py
     #   - --repo-root
-    #   - third_party/Depth-Anything-V2
+    #   - third_party/Depth-Anything-3
     #   - --image
     #   - "{image_path}"
     #   - --output
     #   - "{output_path}"
-    #   - --encoder
-    #   - vitl
-    #   - --mode
-    #   - metric
-    #   - --metric-dataset
-    #   - hypersim
-    #   - --checkpoint
-    #   - third_party/Depth-Anything-V2/metric_depth/checkpoints/depth_anything_v2_metric_hypersim_vitl.pth
+    #   - --intrinsics
+    #   - "{intrinsics_path}"
+    #   - --model-dir
+    #   - depth-anything/da3metric-large
+    #   - --metric-scale
+    #   - da3metric
     command:
       - conda
       - run
       - -n
-      - depth-anything
+      - depth-anything-3
       - python
       - policy/Replay_Policy/auto_init/run_depth_anything_metric.py
       - --repo-root
-      - third_party/Depth-Anything-V2
+      - third_party/Depth-Anything-3
       - --image
       - "{image_path}"
       - --output
       - "{output_path}"
-      - --encoder
-      - vitl
-      - --mode
-      - metric
-      - --metric-dataset
-      - hypersim
-      - --checkpoint
-      - third_party/Depth-Anything-V2/metric_depth/checkpoints/depth_anything_v2_metric_hypersim_vitl.pth
+      - --intrinsics
+      - "{intrinsics_path}"
+      - --model-dir
+      - depth-anything/da3metric-large
+      - --metric-scale
+      - da3metric
   foundationpose:
     mode: command
     output_template: "{cache_dir}/episode_{episode_index:06d}_foundationpose.json"

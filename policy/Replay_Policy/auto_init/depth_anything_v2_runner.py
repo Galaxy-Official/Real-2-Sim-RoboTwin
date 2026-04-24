@@ -1,4 +1,4 @@
-"""Invoke Depth Anything V2 through configurable command or precomputed depth files."""
+"""Invoke Depth Anything through configurable command or precomputed depth files."""
 
 from __future__ import annotations
 
@@ -12,7 +12,13 @@ except ImportError:
     from auto_init.path_utils import REPO_ROOT, resolve_repo_path
 
 
-def run_depth_anything(config: dict, image_path: str, cache_dir: str, episode_index: int) -> Path:
+def run_depth_anything(
+    config: dict,
+    image_path: str,
+    cache_dir: str,
+    episode_index: int,
+    intrinsics_path: str | None = None,
+) -> Path:
     depth_cfg = config.get("auto_init", {}).get("depth_anything", {})
     mode = depth_cfg.get("mode", "command")
     output_template = depth_cfg.get(
@@ -43,6 +49,7 @@ def run_depth_anything(config: dict, image_path: str, cache_dir: str, episode_in
         image_path=image_path,
         output_path=str(output_path),
         depth_path=str(output_path),
+        intrinsics_path="" if intrinsics_path is None else intrinsics_path,
         cache_dir=cache_dir,
         episode_index=episode_index,
     )
