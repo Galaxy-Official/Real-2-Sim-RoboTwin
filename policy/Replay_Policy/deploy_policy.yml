@@ -24,13 +24,13 @@ auto_init:
   intrinsics:
     # Manual fallback. When camera_calibration.path is set, the fisheye
     # calibration below is used and these values are ignored.
-    fx: 472.38120281
-    fy: 474.16849472
-    cx: 755.47468007
-    cy: 719.68671775
+    fx: 290.58525666
+    fy: 387.44700888
+    cx: 320.0
+    cy: 240.0
   camera_calibration:
     type: fisheye
-    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
     # Set this if the npz was calibrated at a resolution different from the
     # first-frame image. Format: [width, height]. Keep null only if they match.
     calibration_image_size: null

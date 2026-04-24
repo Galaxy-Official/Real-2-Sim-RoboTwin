@@ -86,6 +86,8 @@ def prepare_frame_and_intrinsics(
                 "K": K.tolist(),
                 "D": D.reshape(-1).tolist(),
                 "rms": _as_optional_float(calibration.get("rms")),
+                "K_key": calibration.get("K_key"),
+                "D_key": calibration.get("D_key"),
             },
             "undistorted": True,
         }
@@ -108,6 +110,8 @@ def prepare_frame_and_intrinsics(
             "K": K.tolist(),
             "D": D.reshape(-1).tolist(),
             "rms": _as_optional_float(calibration.get("rms")),
+            "K_key": calibration.get("K_key"),
+            "D_key": calibration.get("D_key"),
         },
         "undistorted": False,
     }
@@ -212,9 +216,14 @@ def _load_calibration(calib_cfg: dict) -> dict[str, Any] | None:
         raise FileNotFoundError(f"Camera calibration file not found: {path}")
     if path.suffix.lower() == ".npz":
         with np.load(path) as data:
+            if "K_new" not in data.files or "D_raw" not in data.files:
+                raise KeyError(
+                    f"Unsupported calibration npz layout in {path}. "
+                    "Expected keys K_new / D_raw / rms."
+                )
             return {
-                "K": np.asarray(data["K"], dtype=np.float64),
-                "D": np.asarray(data["D"], dtype=np.float64),
+                "K": np.asarray(data["K_new"], dtype=np.float64),
+                "D": np.asarray(data["D_raw"], dtype=np.float64),
                 "rms": _as_optional_float(data["rms"]) if "rms" in data.files else None,
             }
     if path.suffix.lower() == ".json":

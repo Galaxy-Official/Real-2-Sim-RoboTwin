@@ -76,19 +76,18 @@ rotvec      = [-0.880866, -1.384416, 0.881969]
 ## Camera Calibration
 
 The first-frame pipeline now supports the fisheye calibration file
-`policy/Replay_Policy/auto_init/fisheye_calib_result.npz` with keys `K`,
-`D`, and `rms`.
+`policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz`.
 
-The current bundled values are:
+The current default bundled values are:
 
 ```text
-K =
-[[472.38120281,   0.00000000, 755.47468007],
- [  0.00000000, 474.16849472, 719.68671775],
+K_new =
+[[290.58525666,   0.00000000, 320.00000000],
+ [  0.00000000, 387.44700888, 240.00000000],
  [  0.00000000,   0.00000000,   1.00000000]]
 
-D = [-0.01698907, 0.00055807, -0.00500646, 0.00096790]
-rms = 0.1845658471820628
+D_raw = [-0.10000000, 0.05000000, -0.01000000, 0.00100000]
+rms = 0.5
 ```
 
 `build_init_meta.py` uses this calibration to:
@@ -98,9 +97,10 @@ rms = 0.1845658471820628
 - compute the new pinhole camera matrix `new_K`
 - write `episode_xxxxxx_intrinsics.json` for FoundationPose
 
-Important: LeRobot metadata reports the wrist video as `640x480`, but the
-calibration principal point is around `(755, 720)`. If the calibration was done
-at a different source resolution, set:
+LeRobot metadata reports the wrist video as `640x480`. The current default
+`K_new` has principal point `(320, 240)`, which is geometrically consistent
+with that frame size. If a future calibration is produced at a different source
+resolution, set:
 
 ```yaml
 auto_init:
@@ -118,12 +118,12 @@ When the wrist camera is recalibrated, update the auto-init camera config in
 
 Recommended path:
 
-1. Export the new calibration as an `.npz` file with the same keys:
-   - `K`: `3x3` camera matrix
-   - `D`: fisheye distortion coefficients, usually `4x1` or `4`
+1. Export the new calibration as an `.npz` file with these keys:
+   - `K_new`: `3x3` camera matrix
+   - `D_raw`: fisheye distortion coefficients, usually `4x1` or `4`
    - `rms`: optional calibration error
 2. Put the file here:
-   - `policy/Replay_Policy/auto_init/fisheye_calib_result.npz`
+   - `policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz`
 3. Check the video resolution:
    - current wrist videos are `640x480`
 4. If calibration images were also `640x480`, keep:
@@ -131,7 +131,7 @@ Recommended path:
 ```yaml
 auto_init:
   camera_calibration:
-    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
     calibration_image_size: null
 ```
 
@@ -141,7 +141,7 @@ auto_init:
 ```yaml
 auto_init:
   camera_calibration:
-    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
     calibration_image_size: [SOURCE_WIDTH, SOURCE_HEIGHT]
 ```
 
