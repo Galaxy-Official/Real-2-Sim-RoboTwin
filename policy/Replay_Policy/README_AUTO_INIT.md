@@ -8,7 +8,7 @@ server's `policy/Replay_Policy/` directory.
 1. A LeRobot parquet replay loader for `data/block_stack`.
 2. A first-frame auto-init pipeline that:
    - extracts the wrist-camera first frame
-   - runs Depth Anything V2 externally
+   - runs Depth Anything 3 externally
    - runs FoundationPose externally
    - combines the result with the fixed ALOHA wrist-camera-to-eef transform
    - writes `init_meta.json`
@@ -18,7 +18,7 @@ server's `policy/Replay_Policy/` directory.
    - moves the active arm to the first-frame end-effector pose
    - then lets `Replay_Policy` continue replay from that state
 4. Two uploadable wrappers under `policy/Replay_Policy/auto_init/`:
-   - `run_depth_anything_metric.py`: runs Depth Anything V2 on one RGB frame and saves a `.npy` depth map
+   - `run_depth_anything_metric.py`: runs Depth Anything 3 on one RGB frame and saves a `.npy` depth map
    - `run_foundationpose_once.py`: runs FoundationPose registration on one `rgb + depth + mask + K + mesh` sample and saves pose JSON
 
 ## Files To Upload
@@ -51,7 +51,7 @@ Clone the external repos under `RoboTwin/third_party/`:
 cd /path/to/RoboTwin
 mkdir -p third_party
 cd third_party
-git clone https://github.com/DepthAnything/Depth-Anything-V2.git
+git clone https://github.com/ByteDance-Seed/Depth-Anything-3.git
 git clone https://github.com/NVlabs/FoundationPose.git
 ```
 
@@ -157,6 +157,38 @@ auto_init:
 The code will scale `K` from the calibration resolution to the actual extracted
 video frame resolution before computing the undistorted pinhole `new_K`.
 
+### Debugging Calibration Semantics
+
+Before running FoundationPose, validate whether `K_new/D_raw` should be used as
+raw fisheye calibration input or whether `K_new` is already the pinhole output
+intrinsics for preprocessed images.
+
+From `policy/Replay_Policy`:
+
+```bash
+python auto_init/debug_calibration_semantics.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0
+```
+
+The script writes diagnostics to:
+
+```text
+init_meta/cache/step2_calibration_debug/
+```
+
+Inspect these files first:
+
+- `episode_xxxxxx_raw_vs_fisheye_assumption.png`
+- `episode_xxxxxx_undistort_displacement_heatmap.png`
+- `episode_xxxxxx_calibration_semantics.json`
+
+If the right side of `raw_vs_fisheye_assumption.png` looks geometrically more
+plausible without severe cropping or content squeeze, keep `undistort.enabled:
+true`. If it looks over-warped or worse than the raw frame, treat `K_new` as an
+already-undistorted pinhole matrix and set `undistort.enabled: false`.
+
 If a future preprocessing pipeline outputs already-undistorted images, disable
 runtime fisheye undistortion and provide the pinhole intrinsics directly:
 
@@ -216,23 +248,21 @@ auto_init:
       - conda
       - run
       - -n
-      - depth-anything
+      - depth-anything-3
       - python
       - policy/Replay_Policy/auto_init/run_depth_anything_metric.py
       - --repo-root
-      - third_party/Depth-Anything-V2
+      - third_party/Depth-Anything-3
       - --image
       - "{image_path}"
       - --output
       - "{output_path}"
-      - --encoder
-      - vitl
-      - --mode
-      - metric
-      - --metric-dataset
-      - hypersim
-      - --checkpoint
-      - third_party/Depth-Anything-V2/metric_depth/checkpoints/depth_anything_v2_metric_hypersim_vitl.pth
+      - --intrinsics
+      - "{intrinsics_path}"
+      - --model-dir
+      - depth-anything/da3metric-large
+      - --metric-scale
+      - da3metric
   foundationpose:
     mode: command
     output_template: "{cache_dir}/episode_{episode_index:06d}_foundationpose.json"
