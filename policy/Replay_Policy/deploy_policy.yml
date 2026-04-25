@@ -22,23 +22,22 @@ auto_init:
   wrist_video_key: observation.images.wrist
   state_column: observation.state
   intrinsics:
-    # Manual fallback. When camera_calibration.path is set, the fisheye
-    # calibration below is used and these values are ignored.
+    # Manual fallback used only when camera_calibration.path is null.
     fx: 290.58525666
     fy: 387.44700888
     cx: 320.0
     cy: 240.0
   camera_calibration:
-    type: fisheye
+    # K_new is treated as the pinhole intrinsics for the raw/preprocessed
+    # 640x480 wrist frame. D_raw is recorded as provenance only.
+    type: pinhole
     path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
-    # Set this if the npz was calibrated at a resolution different from the
-    # first-frame image. Format: [width, height]. Keep null only if they match.
     calibration_image_size: null
   undistort:
-    enabled: true
+    enabled: false
     balance: 0.0
     fov_scale: 1.0
-    mask: true
+    mask: false
     frame_output_template: "{cache_dir}/episode_{episode_index:06d}_wrist_undistorted.png"
     mask_output_template: "{cache_dir}/episode_{episode_index:06d}_mask_undistorted.png"
   aloha_wrist_to_eef_pose:

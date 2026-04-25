@@ -1,4 +1,4 @@
-"""Camera calibration and fisheye undistortion helpers for auto-init."""
+"""Camera intrinsics and optional fisheye undistortion helpers for auto-init."""
 
 from __future__ import annotations
 
@@ -17,16 +17,18 @@ def prepare_frame_and_intrinsics(
 ) -> dict:
     """Return the image path and pinhole intrinsics used by FoundationPose.
 
-    If fisheye undistortion is enabled, the returned image path points to the
-    undistorted frame and the intrinsics are the corresponding new pinhole K.
+    If camera_calibration.type is pinhole, the calibration K is used directly
+    with the raw frame. If fisheye undistortion is enabled, the returned image
+    path points to the undistorted frame and intrinsics are the new pinhole K.
     Otherwise the original frame path and configured/raw K are returned.
     """
 
     frame_path = Path(frame_path)
     cache_dir = Path(cache_dir)
     intrinsics_cfg = auto_init_cfg.get("intrinsics", {})
-    calib_cfg = auto_init_cfg.get("camera_calibration", {})
-    undistort_cfg = auto_init_cfg.get("undistort", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    calib_type = _calibration_type(calib_cfg)
     calibration = _load_calibration(calib_cfg)
 
     if calibration is None:
@@ -50,6 +52,31 @@ def prepare_frame_and_intrinsics(
     D = np.asarray(calibration["D"], dtype=np.float64).reshape(-1, 1)
     image_size = _read_image_size(frame_path)
     K = _maybe_scale_K_to_image(K, calib_cfg, image_size)
+
+    if calib_type == "pinhole":
+        if undistort_cfg.get("enabled", False):
+            raise ValueError(
+                "auto_init.camera_calibration.type=pinhole is incompatible with "
+                "auto_init.undistort.enabled=true. Use type=fisheye for runtime "
+                "undistortion, or set undistort.enabled=false."
+            )
+        intrinsics_path = _write_intrinsics(
+            cache_dir / f"episode_{episode_index:06d}_intrinsics.json",
+            K,
+            source="pinhole_calibration",
+            raw_K=K,
+            D=D,
+            rms=calibration.get("rms"),
+        )
+        return {
+            "frame_path": str(frame_path),
+            "raw_frame_path": str(frame_path),
+            "intrinsics": _matrix_to_intrinsics_dict(K),
+            "intrinsics_matrix": K.tolist(),
+            "intrinsics_path": str(intrinsics_path),
+            "calibration": _calibration_metadata(K, D, calibration, calib_type),
+            "undistorted": False,
+        }
 
     if undistort_cfg.get("enabled", True):
         undistorted_path, new_K = undistort_image_file(
@@ -82,13 +109,7 @@ def prepare_frame_and_intrinsics(
             "intrinsics": _matrix_to_intrinsics_dict(new_K),
             "intrinsics_matrix": new_K.tolist(),
             "intrinsics_path": str(intrinsics_path),
-            "calibration": {
-                "K": K.tolist(),
-                "D": D.reshape(-1).tolist(),
-                "rms": _as_optional_float(calibration.get("rms")),
-                "K_key": calibration.get("K_key"),
-                "D_key": calibration.get("D_key"),
-            },
+            "calibration": _calibration_metadata(K, D, calibration, calib_type),
             "undistorted": True,
         }
 
@@ -106,13 +127,7 @@ def prepare_frame_and_intrinsics(
         "intrinsics": _matrix_to_intrinsics_dict(K),
         "intrinsics_matrix": K.tolist(),
         "intrinsics_path": str(intrinsics_path),
-        "calibration": {
-            "K": K.tolist(),
-            "D": D.reshape(-1).tolist(),
-            "rms": _as_optional_float(calibration.get("rms")),
-            "K_key": calibration.get("K_key"),
-            "D_key": calibration.get("D_key"),
-        },
+        "calibration": _calibration_metadata(K, D, calibration, calib_type),
         "undistorted": False,
     }
 
@@ -225,6 +240,9 @@ def _load_calibration(calib_cfg: dict) -> dict[str, Any] | None:
                 "K": np.asarray(data["K_new"], dtype=np.float64),
                 "D": np.asarray(data["D_raw"], dtype=np.float64),
                 "rms": _as_optional_float(data["rms"]) if "rms" in data.files else None,
+                "K_key": "K_new",
+                "D_key": "D_raw",
+                "path": str(path),
             }
     if path.suffix.lower() == ".json":
         payload = json.loads(path.read_text(encoding="utf-8"))
@@ -232,8 +250,40 @@ def _load_calibration(calib_cfg: dict) -> dict[str, Any] | None:
             "K": np.asarray(payload["K"], dtype=np.float64),
             "D": np.asarray(payload["D"], dtype=np.float64),
             "rms": payload.get("rms"),
+            "K_key": "K",
+            "D_key": "D",
+            "path": str(path),
         }
     raise ValueError(f"Unsupported camera calibration file type: {path}")
+
+
+def _calibration_type(calib_cfg: dict) -> str:
+    raw_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    aliases = {
+        "fisheye": "fisheye",
+        "opencv_fisheye": "fisheye",
+        "pinhole": "pinhole",
+        "pinhole_output": "pinhole",
+        "opencv_pinhole": "pinhole",
+    }
+    if raw_type not in aliases:
+        raise ValueError(
+            f"Unsupported auto_init.camera_calibration.type={raw_type!r}. "
+            "Expected 'pinhole' or 'fisheye'."
+        )
+    return aliases[raw_type]
+
+
+def _calibration_metadata(K: np.ndarray, D: np.ndarray, calibration: dict[str, Any], calib_type: str) -> dict:
+    return {
+        "type": calib_type,
+        "path": calibration.get("path"),
+        "K": K.tolist(),
+        "D": D.reshape(-1).tolist(),
+        "rms": _as_optional_float(calibration.get("rms")),
+        "K_key": calibration.get("K_key"),
+        "D_key": calibration.get("D_key"),
+    }
 
 
 def _manual_intrinsics_to_matrix(intrinsics_cfg: dict) -> np.ndarray:

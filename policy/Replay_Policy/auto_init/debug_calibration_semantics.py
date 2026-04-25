@@ -15,6 +15,7 @@ import yaml
 
 THIS_DIR = Path(__file__).resolve().parent
 REPLAY_POLICY_DIR = THIS_DIR.parent
+DEFAULT_CALIBRATION_PATH = THIS_DIR / "fisheye_calib_result_resized.npz"
 if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
@@ -29,6 +30,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-index", required=True, type=int)
     parser.add_argument("--video-key", default=None)
     parser.add_argument("--frame-image", default=None, help="Optional existing raw first-frame image.")
+    parser.add_argument(
+        "--calibration-path",
+        default=None,
+        help="Optional K_new/D_raw npz. Defaults to config path, then bundled fisheye_calib_result_resized.npz.",
+    )
     parser.add_argument("--output-dir", default=None)
     parser.add_argument("--balance", default=None, type=float)
     parser.add_argument("--fov-scale", default=None, type=float)
@@ -57,7 +63,7 @@ def main() -> None:
         output_dir=output_dir,
         video_key=video_key,
     )
-    calibration_path = resolve_repo_path(auto_init_cfg["camera_calibration"]["path"])
+    calibration_path = _resolve_calibration_path(args, auto_init_cfg)
     K, D, rms, keys = _load_npz_calibration(calibration_path)
     metadata_size = _metadata_image_size(args.data_dir, video_key)
 
@@ -134,6 +140,15 @@ def _resolve_or_extract_frame(args: argparse.Namespace, auto_init_cfg: dict, out
     frame_path = output_dir / f"episode_{args.episode_index:06d}_raw_first_frame.png"
     extract_first_frame(video_path, frame_path)
     return frame_path
+
+
+def _resolve_calibration_path(args: argparse.Namespace, auto_init_cfg: dict) -> Path:
+    if args.calibration_path:
+        return resolve_cli_path(args.calibration_path)
+    calib_cfg = auto_init_cfg.get("camera_calibration", {})
+    if isinstance(calib_cfg, dict) and calib_cfg.get("path"):
+        return resolve_repo_path(calib_cfg["path"])
+    return DEFAULT_CALIBRATION_PATH.resolve()
 
 
 def _load_npz_calibration(path: Path) -> tuple[np.ndarray, np.ndarray, float | None, dict[str, str]]:
@@ -355,8 +370,8 @@ def _build_summary(
             absdiff_stats=absdiff_stats,
         ),
         "decision_guide": [
-            "If raw_vs_fisheye_assumption shows straighter lines without severe cropping or content squeeze, K_new/D_raw is plausible as raw fisheye input and current undistort.enabled=true is reasonable.",
-            "If the undistorted side looks over-warped, cropped, or less geometrically plausible than raw, K_new is likely already a pinhole output K; set undistort.enabled=false and use K_new directly.",
+            "If raw_vs_fisheye_assumption shows straighter lines without severe cropping or content squeeze, K_new/D_raw is plausible as raw fisheye input and runtime undistortion may be reasonable for a future calibration.",
+            "If the undistorted side looks over-warped, cropped, or less geometrically plausible than raw, K_new is likely already a pinhole output K; keep undistort.enabled=false and use K_new directly.",
             "Without checkerboard images or known straight scene lines this script cannot prove the semantic label; it produces the evidence needed for visual confirmation.",
         ],
     }

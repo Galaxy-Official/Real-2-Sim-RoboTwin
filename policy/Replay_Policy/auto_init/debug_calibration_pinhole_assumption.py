@@ -16,6 +16,7 @@ import yaml
 
 THIS_DIR = Path(__file__).resolve().parent
 REPLAY_POLICY_DIR = THIS_DIR.parent
+DEFAULT_CALIBRATION_PATH = THIS_DIR / "fisheye_calib_result_resized.npz"
 if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
@@ -30,6 +31,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--episode-index", required=True, type=int)
     parser.add_argument("--video-key", default=None)
     parser.add_argument("--frame-image", default=None, help="Optional existing raw first-frame image.")
+    parser.add_argument(
+        "--calibration-path",
+        default=None,
+        help="Optional K_new/D_raw npz. Defaults to config path, then bundled fisheye_calib_result_resized.npz.",
+    )
     parser.add_argument("--output-dir", default=None)
     parser.add_argument(
         "--fisheye-debug-dir",
@@ -55,7 +61,7 @@ def main() -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
 
     frame_path = _resolve_or_extract_frame(args, output_dir, video_key)
-    calibration_path = resolve_repo_path(auto_init_cfg["camera_calibration"]["path"])
+    calibration_path = _resolve_calibration_path(args, auto_init_cfg)
     K, D, rms = _load_npz_calibration(calibration_path)
     metadata_size = _metadata_image_size(args.data_dir, video_key)
 
@@ -81,7 +87,7 @@ def main() -> None:
     )
 
     snippet_path = output_dir / "deploy_policy_pinhole_assumption_snippet.yml"
-    snippet_path.write_text(_deploy_policy_snippet(K), encoding="utf-8")
+    snippet_path.write_text(_deploy_policy_snippet(K, calibration_path), encoding="utf-8")
 
     summary = {
         "episode_index": args.episode_index,
@@ -93,8 +99,10 @@ def main() -> None:
             "description": "Use raw wrist frame directly and use K_new as the pinhole camera matrix. No runtime fisheye undistortion.",
             "pipeline_change_if_selected": {
                 "auto_init.undistort.enabled": False,
-                "auto_init.camera_calibration.path": None,
-                "auto_init.intrinsics": _matrix_to_intrinsics_dict(K),
+                "auto_init.undistort.mask": False,
+                "auto_init.camera_calibration.type": "pinhole",
+                "auto_init.camera_calibration.path": _snippet_calibration_path(calibration_path),
+                "K_new_as_intrinsics": _matrix_to_intrinsics_dict(K),
             },
         },
         "inputs_for_downstream_debug": {
@@ -120,15 +128,15 @@ def main() -> None:
             "dx": float(K[0, 2] - width / 2.0),
             "dy": float(K[1, 2] - height / 2.0),
         },
-        "compare_against_current_logic": {
-            "run_current_logic_script": "python auto_init/debug_calibration_semantics.py --config deploy_policy.yml --data-dir ../../replay_data/block_stack --episode-index 0",
-            "current_logic_output_dir": str((cache_dir / "step2_calibration_debug").resolve()),
-            "current_logic_image_to_compare": f"episode_{args.episode_index:06d}_fisheye_assumption_undistorted.png",
+        "compare_against_fisheye_reference": {
+            "run_fisheye_reference_script": "python auto_init/debug_calibration_semantics.py --config deploy_policy.yml --data-dir ../../replay_data/block_stack --episode-index 0",
+            "fisheye_reference_output_dir": str((cache_dir / "step2_calibration_debug").resolve()),
+            "fisheye_reference_image_to_compare": f"episode_{args.episode_index:06d}_fisheye_assumption_undistorted.png",
             "this_logic_image_to_compare": raw_out.name,
         },
         "decision_guide": [
             "If this raw/pinhole-assumption image looks more geometrically plausible than the fisheye-assumption image, set undistort.enabled=false and use K_new directly.",
-            "If the fisheye-assumption image straightens geometry without severe cropping or squeeze, keep the current runtime undistortion path.",
+            "If the fisheye-assumption image straightens geometry without severe cropping or squeeze, runtime undistortion may be the better path.",
             "Use the intrinsics JSON from this folder to run Depth Anything 3 / FoundationPose manually under the pinhole-output assumption.",
         ],
     }
@@ -152,6 +160,15 @@ def _resolve_or_extract_frame(args: argparse.Namespace, output_dir: Path, video_
     frame_path = output_dir / f"episode_{args.episode_index:06d}_raw_first_frame.png"
     extract_first_frame(video_path, frame_path)
     return frame_path
+
+
+def _resolve_calibration_path(args: argparse.Namespace, auto_init_cfg: dict) -> Path:
+    if args.calibration_path:
+        return resolve_cli_path(args.calibration_path)
+    calib_cfg = auto_init_cfg.get("camera_calibration", {})
+    if isinstance(calib_cfg, dict) and calib_cfg.get("path"):
+        return resolve_repo_path(calib_cfg["path"])
+    return DEFAULT_CALIBRATION_PATH.resolve()
 
 
 def _load_npz_calibration(path: Path) -> tuple[np.ndarray, np.ndarray, float | None]:
@@ -227,7 +244,7 @@ def _write_optional_comparison(args: argparse.Namespace, cache_dir: Path, raw_ou
 
     output_path = output_dir / f"episode_{args.episode_index:06d}_pinhole_vs_fisheye_assumption.png"
     left = _open_rgb_with_label(raw_out, "pinhole assumption: raw frame + K_new")
-    right = _open_rgb_with_label(fisheye_image, "current assumption: runtime fisheye undistort")
+    right = _open_rgb_with_label(fisheye_image, "fisheye reference: runtime undistort")
     height = max(left.height, right.height)
     width = left.width + right.width
     canvas = Image.new("RGB", (width, height), (0, 0, 0))
@@ -245,20 +262,30 @@ def _open_rgb_with_label(path: Path, label: str) -> Image.Image:
     return image
 
 
-def _deploy_policy_snippet(K: np.ndarray) -> str:
+def _deploy_policy_snippet(K: np.ndarray, calibration_path: Path) -> str:
     intrinsics = _matrix_to_intrinsics_dict(K)
+    path_text = _snippet_calibration_path(calibration_path)
     return (
         "auto_init:\n"
         "  camera_calibration:\n"
-        "    path: null\n"
+        "    type: pinhole\n"
+        f"    path: {path_text}\n"
         "  undistort:\n"
         "    enabled: false\n"
+        "    mask: false\n"
+        "  # Manual fallback only if camera_calibration.path is removed.\n"
         "  intrinsics:\n"
         f"    fx: {intrinsics['fx']:.10f}\n"
         f"    fy: {intrinsics['fy']:.10f}\n"
         f"    cx: {intrinsics['cx']:.10f}\n"
         f"    cy: {intrinsics['cy']:.10f}\n"
     )
+
+
+def _snippet_calibration_path(calibration_path: Path) -> str:
+    if calibration_path.resolve() == DEFAULT_CALIBRATION_PATH.resolve():
+        return "policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz"
+    return str(calibration_path)
 
 
 if __name__ == "__main__":
