@@ -189,6 +189,25 @@ plausible without severe cropping or content squeeze, keep `undistort.enabled:
 true`. If it looks over-warped or worse than the raw frame, treat `K_new` as an
 already-undistorted pinhole matrix and set `undistort.enabled: false`.
 
+To generate the alternate pinhole-output assumption inputs directly, run:
+
+```bash
+python auto_init/debug_calibration_pinhole_assumption.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0
+```
+
+This writes:
+
+```text
+init_meta/cache/step2_pinhole_assumption_debug/
+```
+
+If `debug_calibration_semantics.py` has already been run, the alternate script
+also writes `episode_xxxxxx_pinhole_vs_fisheye_assumption.png`, which places
+the raw+pinhole assumption next to the runtime-undistorted fisheye assumption.
+
 If a future preprocessing pipeline outputs already-undistorted images, disable
 runtime fisheye undistortion and provide the pinhole intrinsics directly:
 
