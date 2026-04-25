@@ -39,6 +39,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output", default=None, help="Mask output path. Defaults to auto_init.mask.template.")
     parser.add_argument("--prompt-json", default=None, help="Prompt JSON containing bbox/points.")
     parser.add_argument("--write-prompt-template", default=None, help="Write a prompt template JSON and exit.")
+    parser.add_argument("--grid-step", type=int, default=40, help="Pixel spacing for the coordinate guide image.")
     parser.add_argument("--box", nargs=4, type=float, metavar=("X1", "Y1", "X2", "Y2"))
     parser.add_argument(
         "--positive-point",
@@ -94,8 +95,17 @@ def main() -> None:
 
     if args.write_prompt_template:
         template_path = resolve_cli_path(args.write_prompt_template)
-        _write_prompt_template(template_path, image_path, image.shape[1], image.shape[0])
+        coordinate_guide_path = debug_dir / f"episode_{args.episode_index:06d}_coordinate_guide.png"
+        _write_coordinate_guide(image, coordinate_guide_path, grid_step=args.grid_step)
+        _write_prompt_template(
+            path=template_path,
+            image_path=image_path,
+            width=image.shape[1],
+            height=image.shape[0],
+            coordinate_guide_path=coordinate_guide_path,
+        )
         print(f"[generate_sam_mask] Wrote prompt template to {template_path.resolve()}")
+        print(f"[generate_sam_mask] Wrote coordinate guide to {coordinate_guide_path.resolve()}")
         return
 
     prompts = _load_prompts(args)
@@ -197,9 +207,16 @@ def _resolve_output_path(args: argparse.Namespace, config: dict) -> Path:
     raise ValueError(f"Unsupported mask mode: {mode}")
 
 
-def _write_prompt_template(path: Path, image_path: Path, width: int, height: int) -> None:
+def _write_prompt_template(
+    path: Path,
+    image_path: Path,
+    width: int,
+    height: int,
+    coordinate_guide_path: Path,
+) -> None:
     payload = {
         "image_path": str(image_path.resolve()),
+        "coordinate_guide_path": str(coordinate_guide_path.resolve()),
         "image_size": {"width": width, "height": height},
         "box": [100, 100, 300, 300],
         "positive_points": [[200, 200]],
@@ -212,6 +229,25 @@ def _write_prompt_template(path: Path, image_path: Path, width: int, height: int
     }
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
+
+
+def _write_coordinate_guide(image: np.ndarray, output_path: Path, grid_step: int) -> None:
+    grid_step = max(10, int(grid_step))
+    guide = Image.fromarray(image).convert("RGB")
+    draw = ImageDraw.Draw(guide, "RGBA")
+    width, height = guide.size
+
+    for x in range(0, width, grid_step):
+        draw.line((x, 0, x, height), fill=(255, 255, 0, 120), width=1)
+        draw.text((x + 3, 3), str(x), fill=(255, 255, 0, 255))
+    for y in range(0, height, grid_step):
+        draw.line((0, y, width, y), fill=(0, 255, 255, 120), width=1)
+        draw.text((3, y + 3), str(y), fill=(0, 255, 255, 255))
+
+    draw.rectangle((0, 0, min(width - 1, 250), 24), fill=(0, 0, 0, 170))
+    draw.text((6, 5), "x: yellow vertical, y: cyan horizontal", fill=(255, 255, 255, 255))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    guide.save(output_path)
 
 
 def _load_prompts(args: argparse.Namespace) -> dict:

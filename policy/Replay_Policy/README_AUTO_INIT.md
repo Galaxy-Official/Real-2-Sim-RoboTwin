@@ -380,6 +380,15 @@ python auto_init/generate_sam_mask.py \
   --write-prompt-template init_meta/cache/mask_generation_debug/episode_000000_prompt.json
 ```
 
+This also writes a coordinate guide image:
+
+```text
+init_meta/cache/mask_generation_debug/episode_000000_coordinate_guide.png
+```
+
+Use this guide instead of guessing raw pixel coordinates. Yellow vertical lines
+show `x`; cyan horizontal lines show `y`.
+
 Edit the JSON with:
 
 - `box`: tight `[x1, y1, x2, y2]` rectangle around the target object
@@ -397,11 +406,20 @@ Example prompt JSON:
 
 ```json
 {
+  "image_path": "init_meta/cache/mask_generation_debug/episode_000000_wrist_first_frame.png",
+  "coordinate_guide_path": "init_meta/cache/mask_generation_debug/episode_000000_coordinate_guide.png",
   "box": [260, 150, 360, 250],
   "positive_points": [[310, 200]],
   "negative_points": [[310, 125], [390, 205]]
 }
 ```
+
+How to choose values:
+
+- `box`: read the approximate left, top, right, bottom edges of the target object from the coordinate guide
+- `positive_points`: choose one point near the visible center of the target object
+- `negative_points`: choose points inside nearby distractors if SAM includes them in the mask
+- The numbers do not need to be pixel-perfect; a tight bbox plus one good positive point is usually enough
 
 Edit it on the server:
 
