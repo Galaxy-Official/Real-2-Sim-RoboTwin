@@ -241,6 +241,62 @@ In this mode, the pipeline passes the extracted RGB frame directly to Depth
 Anything 3 and FoundationPose, and `episode_xxxxxx_intrinsics.json` is
 written from `K_new` in the calibration `.npz`.
 
+### Debugging Camera Calibration Outputs
+
+After selecting the calibration semantics, verify the concrete outputs produced
+by `camera_calibration.py`:
+
+```bash
+python auto_init/debug_camera_calibration_outputs.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0
+```
+
+If the configured mask path is not present yet, either provide it explicitly:
+
+```bash
+python auto_init/debug_camera_calibration_outputs.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --mask-image /path/to/episode_000000_mask.png
+```
+
+or skip mask checks while validating the RGB frame and intrinsics:
+
+```bash
+python auto_init/debug_camera_calibration_outputs.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --allow-missing-mask
+```
+
+The script writes:
+
+```text
+init_meta/cache/step3_camera_calibration_debug/
+```
+
+For the current raw + `K_new` pinhole logic, expected results are:
+
+- `episode_xxxxxx_current_config_raw_vs_runtime_frame.png` should show identical images
+- `episode_xxxxxx_current_config_raw_vs_runtime_mask.png` should show identical masks, if a mask is available
+- `episode_xxxxxx_current_config_intrinsics.json` should have `source: pinhole_calibration`
+- `episode_xxxxxx_camera_calibration_outputs.json` should report `frame_undistorted: false`
+
+To additionally force the old fisheye interpretation and generate reference
+runtime-undistorted RGB/mask outputs, add:
+
+```bash
+python auto_init/debug_camera_calibration_outputs.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --include-fisheye-reference
+```
+
 ## Wrapper Roles
 
 ```
