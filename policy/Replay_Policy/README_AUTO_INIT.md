@@ -313,10 +313,66 @@ For episode `0`, this is usually:
 ../../replay_data/block_stack/masks/episode_000000.png
 ```
 
+### Installing SAM2 On The Server
+
+Install SAM2 under the RoboTwin root so all third-party code stays in one
+place:
+
+```bash
+cd /path/to/RoboTwin
+mkdir -p third_party
+cd third_party
+git clone https://github.com/facebookresearch/sam2.git
+cd sam2
+```
+
+Create a dedicated conda environment. Pick the PyTorch CUDA wheel that matches
+your server driver; the example below uses CUDA 12.1 wheels:
+
+```bash
+conda create -n sam2 python=3.10 -y
+conda activate sam2
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121
+pip install -e ".[notebooks]"
+pip install pyyaml pillow numpy opencv-python
+```
+
+If the SAM2 CUDA extension build fails but the package installs, continue; image
+mask generation still usually works. Then download checkpoints:
+
+```bash
+cd /path/to/RoboTwin/third_party/sam2/checkpoints
+bash download_ckpts.sh
+```
+
+Verify the environment:
+
+```bash
+conda activate sam2
+python - <<'PY'
+import torch
+from sam2.build_sam import build_sam2
+from sam2.sam2_image_predictor import SAM2ImagePredictor
+print("torch", torch.__version__, "cuda", torch.cuda.is_available())
+print("sam2 import ok", SAM2ImagePredictor)
+PY
+```
+
+The commands below assume:
+
+```text
+SAM2 repo:   /path/to/RoboTwin/third_party/sam2
+Checkpoint:  /path/to/RoboTwin/third_party/sam2/checkpoints/sam2.1_hiera_large.pt
+Config:      configs/sam2.1/sam2.1_hiera_l.yaml
+```
+
 Use `generate_sam_mask.py` to create this mask with SAM/SAM2. First create a
 prompt template and inspect the extracted first frame:
 
 ```bash
+cd /path/to/RoboTwin/policy/Replay_Policy
+conda activate sam2
+
 python auto_init/generate_sam_mask.py \
   --config deploy_policy.yml \
   --data-dir ../../replay_data/block_stack \
@@ -330,17 +386,53 @@ Edit the JSON with:
 - `positive_points`: one or more points safely inside the target object
 - `negative_points`: points on distractors such as gripper fingers, table, or other blocks
 
-Then run SAM2 if your server has a SAM2 install and checkpoint:
+Coordinate convention:
+
+- origin `(0, 0)` is the top-left corner of the image
+- `x` increases to the right
+- `y` increases downward
+- wrist images are currently `640x480`, so valid `x` is `[0, 639]` and valid `y` is `[0, 479]`
+
+Example prompt JSON:
+
+```json
+{
+  "box": [260, 150, 360, 250],
+  "positive_points": [[310, 200]],
+  "negative_points": [[310, 125], [390, 205]]
+}
+```
+
+Edit it on the server:
 
 ```bash
+nano init_meta/cache/mask_generation_debug/episode_000000_prompt.json
+```
+
+If you prefer not to edit JSON, pass the same prompts directly on the command
+line:
+
+```bash
+--box 260 150 360 250 \
+--positive-point 310 200 \
+--negative-point 310 125 \
+--negative-point 390 205
+```
+
+Then run SAM2:
+
+```bash
+cd /path/to/RoboTwin/policy/Replay_Policy
+conda activate sam2
+
 python auto_init/generate_sam_mask.py \
   --config deploy_policy.yml \
   --data-dir ../../replay_data/block_stack \
   --episode-index 0 \
   --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
   --backend sam2 \
-  --sam2-config sam2_hiera_l.yaml \
-  --checkpoint /path/to/sam2_checkpoint.pt \
+  --sam2-config configs/sam2.1/sam2.1_hiera_l.yaml \
+  --checkpoint ../../third_party/sam2/checkpoints/sam2.1_hiera_large.pt \
   --device cuda
 ```
 
@@ -367,6 +459,22 @@ init_meta/cache/mask_generation_debug/
 Inspect `episode_xxxxxx_sam_mask_overlay.png`. The green region should include
 the complete target object and exclude the gripper, table, and neighboring
 objects. If it is wrong, tighten the bbox or add negative points and rerun.
+
+After the overlay looks correct, verify that the mask was saved to the default
+path:
+
+```bash
+ls -lh ../../replay_data/block_stack/masks/episode_000000.png
+```
+
+Then rerun step 3 without `--allow-missing-mask`:
+
+```bash
+python auto_init/debug_camera_calibration_outputs.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0
+```
 
 ## Wrapper Roles
 
