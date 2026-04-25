@@ -297,6 +297,77 @@ python auto_init/debug_camera_calibration_outputs.py \
   --include-fisheye-reference
 ```
 
+## Generating Object Masks
+
+The mask is a binary image used by FoundationPose to isolate the target object
+in the first wrist-camera frame. The default path is controlled by
+`auto_init.mask.template` in `deploy_policy.yml`:
+
+```text
+{data_dir}/masks/episode_{episode_index:06d}.png
+```
+
+For episode `0`, this is usually:
+
+```text
+../../replay_data/block_stack/masks/episode_000000.png
+```
+
+Use `generate_sam_mask.py` to create this mask with SAM/SAM2. First create a
+prompt template and inspect the extracted first frame:
+
+```bash
+python auto_init/generate_sam_mask.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --write-prompt-template init_meta/cache/mask_generation_debug/episode_000000_prompt.json
+```
+
+Edit the JSON with:
+
+- `box`: tight `[x1, y1, x2, y2]` rectangle around the target object
+- `positive_points`: one or more points safely inside the target object
+- `negative_points`: points on distractors such as gripper fingers, table, or other blocks
+
+Then run SAM2 if your server has a SAM2 install and checkpoint:
+
+```bash
+python auto_init/generate_sam_mask.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
+  --backend sam2 \
+  --sam2-config sam2_hiera_l.yaml \
+  --checkpoint /path/to/sam2_checkpoint.pt \
+  --device cuda
+```
+
+Or run SAM v1 if your environment uses `segment_anything`:
+
+```bash
+python auto_init/generate_sam_mask.py \
+  --config deploy_policy.yml \
+  --data-dir ../../replay_data/block_stack \
+  --episode-index 0 \
+  --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
+  --backend sam \
+  --model-type vit_h \
+  --checkpoint /path/to/sam_vit_h.pth \
+  --device cuda
+```
+
+The script writes the binary mask to the default mask path and debug files to:
+
+```text
+init_meta/cache/mask_generation_debug/
+```
+
+Inspect `episode_xxxxxx_sam_mask_overlay.png`. The green region should include
+the complete target object and exclude the gripper, table, and neighboring
+objects. If it is wrong, tighten the bbox or add negative points and rerun.
+
 ## Wrapper Roles
 
 ```
