@@ -337,6 +337,18 @@ pip install -e ".[notebooks]"
 pip install pyyaml pillow numpy opencv-python
 ```
 
+Confirm `pip` and `python` are from the same `sam2` environment:
+
+```bash
+which python
+which pip
+python -m pip show SAM-2
+python - <<'PY'
+import sam2
+print("sam2 package path:", sam2.__file__)
+PY
+```
+
 If the SAM2 CUDA extension build fails but the package installs, continue; image
 mask generation still usually works. Then download checkpoints:
 
@@ -449,6 +461,7 @@ python auto_init/generate_sam_mask.py \
   --episode-index 0 \
   --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
   --backend sam2 \
+  --sam2-repo ../../third_party/sam2 \
   --sam2-config configs/sam2.1/sam2.1_hiera_l.yaml \
   --checkpoint ../../third_party/sam2/checkpoints/sam2.1_hiera_large.pt \
   --device cuda

@@ -20,7 +20,7 @@ REPLAY_POLICY_DIR = THIS_DIR.parent
 if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
-from auto_init.path_utils import resolve_cli_path, resolve_repo_path
+from auto_init.path_utils import REPO_ROOT, resolve_cli_path, resolve_repo_path
 from replay_lerobot_loader import extract_first_frame, resolve_episode_video_path
 
 
@@ -61,6 +61,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", default=None, help="SAM/SAM2 checkpoint path.")
     parser.add_argument("--model-type", default="vit_h", help="SAM v1 model type: vit_h, vit_l, or vit_b.")
     parser.add_argument("--sam2-config", default=None, help="SAM2 model config, e.g. sam2_hiera_l.yaml.")
+    parser.add_argument(
+        "--sam2-repo",
+        default=None,
+        help="SAM2 source repo path. Defaults to RoboTwin/third_party/sam2 if it exists.",
+    )
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--multimask", action=argparse.BooleanOptionalAction, default=True)
     parser.add_argument("--min-area", type=int, default=100)
@@ -313,11 +318,16 @@ def _predict_masks_sam2(args: argparse.Namespace, image: np.ndarray, prompts: di
         raise ValueError("--checkpoint is required for SAM2.")
     if not args.sam2_config:
         raise ValueError("--sam2-config is required for SAM2, e.g. sam2_hiera_l.yaml.")
+    _add_sam2_repo_to_pythonpath(args.sam2_repo)
     try:
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor
     except ImportError as exc:
-        raise ImportError("SAM2 Python package is not importable.") from exc
+        raise ImportError(
+            "SAM2 Python package is not importable. Activate the sam2 conda env, run "
+            "`pip install -e .` inside third_party/sam2, or pass "
+            "`--sam2-repo /path/to/RoboTwin/third_party/sam2`."
+        ) from exc
 
     model = build_sam2(args.sam2_config, args.checkpoint, device=args.device)
     predictor = SAM2ImagePredictor(model)
@@ -329,6 +339,20 @@ def _predict_masks_sam2(args: argparse.Namespace, image: np.ndarray, prompts: di
         multimask_output=args.multimask,
     )
     return _normalize_predictor_output(masks, scores), [float(score) for score in np.asarray(scores).reshape(-1)], "sam2"
+
+
+def _add_sam2_repo_to_pythonpath(sam2_repo: str | None) -> None:
+    candidates = []
+    if sam2_repo:
+        candidates.append(resolve_cli_path(sam2_repo))
+    candidates.append((REPO_ROOT / "third_party" / "sam2").resolve())
+
+    for candidate in candidates:
+        if (candidate / "sam2").is_dir():
+            candidate_text = str(candidate)
+            if candidate_text not in sys.path:
+                sys.path.insert(0, candidate_text)
+            return
 
 
 def _predict_masks_sam(args: argparse.Namespace, image: np.ndarray, prompts: dict) -> tuple[list[np.ndarray], list[float], str]:
