@@ -746,6 +746,18 @@ third_party/FoundationPose/weights/2023-10-28-18-33-37
 third_party/FoundationPose/weights/2024-01-11-20-02-45
 ```
 
+Download them from the RoboTwin root:
+
+```bash
+conda activate foundationpose
+bash policy/Replay_Policy/auto_init/setup_foundationpose_weights.sh \
+  --foundationpose-root third_party/FoundationPose
+```
+
+The helper uses the Hugging Face mirror `gpue/foundationpose-weights` and
+verifies that both `config.yml` and `model_best.pth` exist for the scorer and
+refiner runs.
+
 If the environment name is not `foundationpose`, update
 `auto_init.foundationpose.command` in `deploy_policy.yml` and replace the
 environment name after `conda run -n`.

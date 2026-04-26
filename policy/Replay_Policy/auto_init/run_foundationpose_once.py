@@ -11,6 +11,13 @@ from pathlib import Path
 
 import numpy as np
 
+REQUIRED_FOUNDATIONPOSE_WEIGHTS = (
+    Path("weights/2023-10-28-18-33-37/config.yml"),
+    Path("weights/2023-10-28-18-33-37/model_best.pth"),
+    Path("weights/2024-01-11-20-02-45/config.yml"),
+    Path("weights/2024-01-11-20-02-45/model_best.pth"),
+)
+
 try:
     from ..坐标系转换 import matrix_to_pose6d, matrix_to_pose7d_wxyz
 except ImportError:
@@ -45,6 +52,7 @@ def main() -> None:
 
     if not repo_root.is_dir():
         raise FileNotFoundError(f"FoundationPose repo not found: {repo_root}")
+    _check_foundationpose_weights(repo_root)
 
     rgb = _load_rgb(Path(args.rgb).resolve())
     depth = _load_depth(Path(args.depth).resolve(), depth_scale=args.depth_scale)
@@ -90,6 +98,26 @@ def main() -> None:
 
     output_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
     print(f"[run_foundationpose_once] Saved pose json to {output_path}")
+
+
+def _check_foundationpose_weights(repo_root: Path) -> None:
+    missing: list[str] = []
+    for rel_path in REQUIRED_FOUNDATIONPOSE_WEIGHTS:
+        path = repo_root / rel_path
+        if not path.is_file():
+            missing.append(str(rel_path))
+        elif path.suffix == ".pth" and path.stat().st_size < 1024 * 1024:
+            missing.append(f"{rel_path} (too small, likely not a real checkpoint)")
+    if missing:
+        missing_text = "\n".join(f"  - {item}" for item in missing)
+        raise FileNotFoundError(
+            "FoundationPose pretrained weights are missing or incomplete:\n"
+            f"{missing_text}\n"
+            "Download them into third_party/FoundationPose/weights. "
+            "From the RoboTwin root, run:\n"
+            "  bash policy/Replay_Policy/auto_init/setup_foundationpose_weights.sh "
+            "--foundationpose-root third_party/FoundationPose"
+        )
 
 
 def _load_rgb(path: Path) -> np.ndarray:
