@@ -53,6 +53,11 @@ if [[ -z "${CONDA_PREFIX:-}" ]]; then
   exit 1
 fi
 
+if ! FOUNDATIONPOSE_ROOT="$(cd -- "${FOUNDATIONPOSE_ROOT}" >/dev/null 2>&1 && pwd)"; then
+  echo "FoundationPose root does not exist: ${FOUNDATIONPOSE_ROOT}" >&2
+  exit 1
+fi
+
 if [[ ! -d "${FOUNDATIONPOSE_ROOT}/mycpp" || ! -d "${FOUNDATIONPOSE_ROOT}/bundlesdf/mycuda" ]]; then
   echo "Invalid FoundationPose root: ${FOUNDATIONPOSE_ROOT}" >&2
   echo "Expected mycpp/ and bundlesdf/mycuda/ under that directory." >&2
