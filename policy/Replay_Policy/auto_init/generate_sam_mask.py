@@ -318,7 +318,10 @@ def _predict_masks_sam2(args: argparse.Namespace, image: np.ndarray, prompts: di
         raise ValueError("--checkpoint is required for SAM2.")
     if not args.sam2_config:
         raise ValueError("--sam2-config is required for SAM2, e.g. sam2_hiera_l.yaml.")
-    _add_sam2_repo_to_pythonpath(args.sam2_repo)
+    sam2_repo = _resolve_sam2_repo(args.sam2_repo)
+    _add_sam2_repo_to_pythonpath(sam2_repo)
+    checkpoint_path = _resolve_sam2_checkpoint(args.checkpoint, sam2_repo)
+    config_name = _resolve_sam2_config_name(args.sam2_config, sam2_repo)
     try:
         from sam2.build_sam import build_sam2
         from sam2.sam2_image_predictor import SAM2ImagePredictor
@@ -329,7 +332,7 @@ def _predict_masks_sam2(args: argparse.Namespace, image: np.ndarray, prompts: di
             "`--sam2-repo /path/to/RoboTwin/third_party/sam2`."
         ) from exc
 
-    model = build_sam2(args.sam2_config, args.checkpoint, device=args.device)
+    model = build_sam2(config_name, str(checkpoint_path), device=args.device)
     predictor = SAM2ImagePredictor(model)
     predictor.set_image(image)
     masks, scores, _ = predictor.predict(
@@ -341,7 +344,7 @@ def _predict_masks_sam2(args: argparse.Namespace, image: np.ndarray, prompts: di
     return _normalize_predictor_output(masks, scores), [float(score) for score in np.asarray(scores).reshape(-1)], "sam2"
 
 
-def _add_sam2_repo_to_pythonpath(sam2_repo: str | None) -> None:
+def _resolve_sam2_repo(sam2_repo: str | None) -> Path | None:
     candidates = []
     if sam2_repo:
         candidates.append(resolve_cli_path(sam2_repo))
@@ -349,10 +352,64 @@ def _add_sam2_repo_to_pythonpath(sam2_repo: str | None) -> None:
 
     for candidate in candidates:
         if (candidate / "sam2").is_dir():
-            candidate_text = str(candidate)
-            if candidate_text not in sys.path:
-                sys.path.insert(0, candidate_text)
-            return
+            return candidate
+    return None
+
+
+def _add_sam2_repo_to_pythonpath(sam2_repo: Path | None) -> None:
+    if sam2_repo is None:
+        return
+    candidate_text = str(sam2_repo)
+    if candidate_text not in sys.path:
+        sys.path.insert(0, candidate_text)
+
+
+def _resolve_sam2_checkpoint(checkpoint: str, sam2_repo: Path | None) -> Path:
+    checkpoint_path = Path(checkpoint).expanduser()
+    candidates = [checkpoint_path]
+    if not checkpoint_path.is_absolute():
+        candidates = [(Path.cwd() / checkpoint_path).resolve()]
+        if sam2_repo is not None:
+            candidates.append((sam2_repo / checkpoint_path).resolve())
+            if checkpoint_path.parts and checkpoint_path.parts[0] != "checkpoints":
+                candidates.append((sam2_repo / "checkpoints" / checkpoint_path).resolve())
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise FileNotFoundError(
+        "SAM2 checkpoint not found. Tried: " + ", ".join(str(candidate) for candidate in candidates)
+    )
+
+
+def _resolve_sam2_config_name(config: str, sam2_repo: Path | None) -> str:
+    config_path = Path(config).expanduser()
+    if config_path.is_absolute():
+        if not config_path.is_file():
+            raise FileNotFoundError(f"SAM2 config not found: {config_path}")
+        return _config_name_from_sam2_path(config_path, sam2_repo)
+
+    cwd_candidate = (Path.cwd() / config_path).resolve()
+    if cwd_candidate.is_file():
+        return _config_name_from_sam2_path(cwd_candidate, sam2_repo)
+
+    if sam2_repo is not None:
+        repo_candidate = (sam2_repo / config_path).resolve()
+        if repo_candidate.is_file():
+            return _config_name_from_sam2_path(repo_candidate, sam2_repo)
+
+    # build_sam2 also accepts Hydra config names such as
+    # configs/sam2.1/sam2.1_hiera_l.yaml after the sam2 package is importable.
+    return config
+
+
+def _config_name_from_sam2_path(config_path: Path, sam2_repo: Path | None) -> str:
+    if sam2_repo is not None:
+        try:
+            return str(config_path.resolve().relative_to(sam2_repo.resolve()))
+        except ValueError:
+            pass
+    return str(config_path)
 
 
 def _predict_masks_sam(args: argparse.Namespace, image: np.ndarray, prompts: dict) -> tuple[list[np.ndarray], list[float], str]:
