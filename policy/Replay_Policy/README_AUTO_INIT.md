@@ -588,6 +588,85 @@ If the server cannot access Hugging Face during the first run, download the
 `depth-anything/da3metric-large` model manually and replace `--model-dir` in
 `deploy_policy.yml` with that local model directory.
 
+## Debugging FoundationPose
+
+Step 5 verifies the exact single-frame inputs to FoundationPose, then runs
+FoundationPose registration and checks the pose JSON.
+
+Before running, replace the placeholder mesh in
+`policy/Replay_Policy/object_configs/block_stack_default.yml`:
+
+```yaml
+name: block_stack_target
+modelname: YOUR_ROBOTWIN_OBJECT_MODELNAME
+mesh_path: /absolute/path/to/target_object_mesh.obj
+symmetry: none
+```
+
+The current placeholder `assets/replace_with_target_mesh.obj` will fail by
+design because FoundationPose needs a real target object mesh.
+
+From `policy/Replay_Policy`, first validate inputs only:
+
+```bash
+python auto_init/debug_foundationpose.py \
+  --config deploy_policy.yml \
+  --data-dir data/handcap2603/block_stack_0401 \
+  --episode-index 0 \
+  --prepare-only
+```
+
+If you want to test with a mesh without editing YAML yet, pass it explicitly:
+
+```bash
+python auto_init/debug_foundationpose.py \
+  --config deploy_policy.yml \
+  --data-dir data/handcap2603/block_stack_0401 \
+  --episode-index 0 \
+  --mesh /absolute/path/to/target_object_mesh.obj \
+  --prepare-only
+```
+
+Then run FoundationPose:
+
+```bash
+python auto_init/debug_foundationpose.py \
+  --config deploy_policy.yml \
+  --data-dir data/handcap2603/block_stack_0401 \
+  --episode-index 0 \
+  --mesh /absolute/path/to/target_object_mesh.obj
+```
+
+The script uses the step-4 depth by default:
+
+```text
+init_meta/cache/step4_depth_anything_debug/episode_000000_depth.npy
+```
+
+It writes:
+
+```text
+init_meta/cache/step5_foundationpose_debug/
+```
+
+Inspect:
+
+- `episode_xxxxxx_foundationpose_input_overlay.png`
+- `episode_xxxxxx_foundationpose.json`
+- `episode_xxxxxx_foundationpose_debug.json`
+
+Expected checks:
+
+- `mesh_exists: true`
+- `mesh_not_placeholder: true`
+- `rgb_depth_shape_match: true`
+- `depth_mask_shape_match: true`
+- `mask_nonempty: true`
+- `intrinsics_source_is_pinhole_calibration: true`
+- after running FoundationPose, `pose_present: true`
+- `pose_translation_positive_z: true`
+- `pose_rotation_det_ok: true`
+
 ## Wrapper Roles
 
 ```
