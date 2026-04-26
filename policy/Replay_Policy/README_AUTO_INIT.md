@@ -651,16 +651,26 @@ print("cuda available:", torch.cuda.is_available())
 PY
 ```
 
+Then install build tools. Use an older setuptools line that still provides
+`pkg_resources`, which some FoundationPose dependencies still import during
+build:
+
+```bash
+python -m pip install --upgrade pip
+python -m pip install "setuptools<70" wheel ninja pybind11
+```
+
 Then install the remaining Python dependencies. Do not run the official
 `requirements.txt` directly after installing a CUDA 12.4 PyTorch build, because
 that file pins `torch/torchvision/torchaudio` to CUDA 11.8. Filter those lines
-out:
+out. Also use `--no-build-isolation`, otherwise older packages such as `visdom`
+may fail in pip's temporary build environment with `No module named
+'pkg_resources'`:
 
 ```bash
 grep -vE '^(--extra-index-url|torch==|torchvision==|torchaudio==)' requirements.txt \
   > /tmp/foundationpose_requirements_no_torch.txt
-python -m pip install -r /tmp/foundationpose_requirements_no_torch.txt
-python -m pip install setuptools wheel ninja pybind11
+python -m pip install --no-build-isolation -r /tmp/foundationpose_requirements_no_torch.txt
 ```
 
 Install `nvdiffrast` only after PyTorch imports correctly. The
