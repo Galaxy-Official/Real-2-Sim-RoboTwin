@@ -122,6 +122,19 @@ export CMAKE_BUILD_PARALLEL_LEVEL="${MAX_JOBS}"
 export MAX_JOBS="${MAX_JOBS}"
 export CPATH="${CONDA_PREFIX}/include/eigen3:${CONDA_PREFIX}/include:${CPATH:-}"
 export CPLUS_INCLUDE_PATH="${CONDA_PREFIX}/include/eigen3:${CONDA_PREFIX}/include:${CPLUS_INCLUDE_PATH:-}"
+if [[ -z "${TORCH_CUDA_ARCH_LIST:-}" ]]; then
+  TORCH_CUDA_ARCH_LIST="$(
+python - <<'PY'
+import torch
+if not torch.cuda.is_available():
+    raise SystemExit("CUDA is not available; cannot infer TORCH_CUDA_ARCH_LIST")
+major, minor = torch.cuda.get_device_capability()
+print(f"{major}.{minor}")
+PY
+)"
+  export TORCH_CUDA_ARCH_LIST
+fi
+echo "[foundationpose-build] TORCH_CUDA_ARCH_LIST: ${TORCH_CUDA_ARCH_LIST}"
 
 echo "[foundationpose-build] Building mycpp"
 cd "${FOUNDATIONPOSE_ROOT}/mycpp"
@@ -149,6 +162,35 @@ patched = text.replace("-std=c++14", "-std=c++17")
 if patched != text:
     setup_py.write_text(patched, encoding="utf-8")
     print("[foundationpose-build] Patched bundlesdf/mycuda/setup.py: c++14 -> c++17")
+
+gridencoder_cu = Path("torch_ngp_grid_encoder/gridencoder.cu")
+text = gridencoder_cu.read_text(encoding="utf-8")
+marker = "FOUNDATIONPOSE_DOUBLE_ATOMICADD_FALLBACK"
+fallback = r"""
+// FOUNDATIONPOSE_DOUBLE_ATOMICADD_FALLBACK
+#if defined(__CUDA_ARCH__) && __CUDA_ARCH__ < 600
+static inline __device__ double atomicAdd(double* address, double val) {
+    unsigned long long int* address_as_ull = (unsigned long long int*)address;
+    unsigned long long int old = *address_as_ull, assumed;
+    do {
+        assumed = old;
+        old = atomicCAS(
+            address_as_ull,
+            assumed,
+            __double_as_longlong(val + __longlong_as_double(assumed)));
+    } while (assumed != old);
+    return __longlong_as_double(old);
+}
+#endif
+
+"""
+if marker not in text:
+    include_pos = text.find("\n\n")
+    if include_pos == -1:
+        gridencoder_cu.write_text(fallback + text, encoding="utf-8")
+    else:
+        gridencoder_cu.write_text(text[: include_pos + 2] + fallback + text[include_pos + 2 :], encoding="utf-8")
+    print("[foundationpose-build] Patched gridencoder.cu: add double atomicAdd fallback")
 PY
 python -m pip install --no-build-isolation -e .
 
