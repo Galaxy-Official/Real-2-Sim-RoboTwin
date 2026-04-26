@@ -717,24 +717,16 @@ print("nvdiffrast and pytorch3d import ok")
 PY
 ```
 
-Build FoundationPose extensions:
+Build FoundationPose extensions with the repository helper. This avoids two
+common failures in the official `build_all_conda.sh`: missing Boost discovery
+and pip editable builds that cannot see the active environment's `torch`.
 
 ```bash
-conda install -c conda-forge eigen=3.4.0 cmake make pkg-config cxx-compiler c-compiler -y
-
-# Force the build to use tools from the active Conda environment, not a broken
-# system cmake such as /usr/local/bin/cmake.
-export PATH="$CONDA_PREFIX/bin:$PATH"
-hash -r
-which cmake
-cmake --version
-
-# build_all_conda.sh calls pip install -e internally. Disable pip build
-# isolation globally so those internal builds can see the active environment's
-# torch installation.
-export PIP_NO_BUILD_ISOLATION=1
-export CMAKE_PREFIX_PATH="$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11:$CONDA_PREFIX"
-bash build_all_conda.sh
+cd /path/to/RoboTwin
+conda activate foundationpose
+bash policy/Replay_Policy/auto_init/setup_foundationpose_build.sh \
+  --foundationpose-root third_party/FoundationPose \
+  --max-jobs 8
 ```
 
 Verify FoundationPose imports from `third_party/FoundationPose`:
