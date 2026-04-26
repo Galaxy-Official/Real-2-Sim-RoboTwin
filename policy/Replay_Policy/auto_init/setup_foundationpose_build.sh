@@ -120,6 +120,8 @@ export CMAKE_PREFIX_PATH="${PYBIND11_CMAKE_DIR}:${CONDA_PREFIX}:${CMAKE_PREFIX_P
 export PIP_NO_BUILD_ISOLATION=1
 export CMAKE_BUILD_PARALLEL_LEVEL="${MAX_JOBS}"
 export MAX_JOBS="${MAX_JOBS}"
+export CPATH="${CONDA_PREFIX}/include/eigen3:${CONDA_PREFIX}/include:${CPATH:-}"
+export CPLUS_INCLUDE_PATH="${CONDA_PREFIX}/include/eigen3:${CONDA_PREFIX}/include:${CPLUS_INCLUDE_PATH:-}"
 
 echo "[foundationpose-build] Building mycpp"
 cd "${FOUNDATIONPOSE_ROOT}/mycpp"
@@ -138,7 +140,17 @@ cmake --build . --parallel "${MAX_JOBS}"
 echo "[foundationpose-build] Building bundlesdf/mycuda"
 cd "${FOUNDATIONPOSE_ROOT}/bundlesdf/mycuda"
 rm -rf build ./*.egg-info ./*.so
-python -m pip install --no-build-isolation --no-use-pep517 -e .
+python - <<'PY'
+from pathlib import Path
+
+setup_py = Path("setup.py")
+text = setup_py.read_text(encoding="utf-8")
+patched = text.replace("-std=c++14", "-std=c++17")
+if patched != text:
+    setup_py.write_text(patched, encoding="utf-8")
+    print("[foundationpose-build] Patched bundlesdf/mycuda/setup.py: c++14 -> c++17")
+PY
+python -m pip install --no-build-isolation -e .
 
 echo "[foundationpose-build] Verifying imports"
 cd "${FOUNDATIONPOSE_ROOT}"
