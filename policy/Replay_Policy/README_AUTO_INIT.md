@@ -593,18 +593,18 @@ If the server cannot access Hugging Face during the first run, download the
 Step 5 verifies the exact single-frame inputs to FoundationPose, then runs
 FoundationPose registration and checks the pose JSON.
 
-Before running, replace the placeholder mesh in
-`policy/Replay_Policy/object_configs/block_stack_default.yml`:
+The current block-stack data uses `121_orange-block`. The default object config
+is:
 
 ```yaml
 name: block_stack_target
-modelname: YOUR_ROBOTWIN_OBJECT_MODELNAME
-mesh_path: /absolute/path/to/target_object_mesh.obj
+modelname: 121_orange-block
+mesh_path: assets/objects/121_orange-block/visual/base0.glb
 symmetry: none
 ```
 
-The current placeholder `assets/replace_with_target_mesh.obj` will fail by
-design because FoundationPose needs a real target object mesh.
+This assumes the official RoboTwin asset exists at
+`RoboTwin/assets/objects/121_orange-block/visual/base0.glb`.
 
 From `policy/Replay_Policy`, first validate inputs only:
 

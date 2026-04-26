@@ -45,7 +45,7 @@ eval_video_log: true
 
 init_meta_from_env: true
 init_meta_env_var: REPLAY_INIT_META_PATH
-target_object_modelname: replace_with_robotwin_modelname
+target_object_modelname: 121_orange-block
 target_object_model_id: 0
 target_object_convex: true
 target_object_spawn_pose: [0.0, 0.20, 0.82, 1.0, 0.0, 0.0, 0.0]

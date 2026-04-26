@@ -1,4 +1,4 @@
 name: block_stack_target
-modelname: replace_with_robotwin_modelname
-mesh_path: assets/replace_with_target_mesh.obj
+modelname: 121_orange-block
+mesh_path: assets/objects/121_orange-block/visual/base0.glb
 symmetry: none

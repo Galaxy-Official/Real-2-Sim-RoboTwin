@@ -22,7 +22,7 @@ if str(REPLAY_POLICY_DIR) not in sys.path:
 
 from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
-from auto_init.path_utils import REPLAY_POLICY_DIR, resolve_cli_path, resolve_existing_path, resolve_repo_path
+from auto_init.path_utils import REPLAY_POLICY_DIR, REPO_ROOT, resolve_cli_path, resolve_existing_path, resolve_repo_path
 from auto_init.real_data_reader import extract_first_frame_inputs
 
 
@@ -145,6 +145,7 @@ def _resolve_mesh(args: argparse.Namespace, object_config: dict, object_config_p
         return resolve_cli_path(args.mesh)
     return resolve_existing_path(
         object_config["mesh_path"],
+        REPO_ROOT,
         REPLAY_POLICY_DIR,
         object_config_path.parent,
     )

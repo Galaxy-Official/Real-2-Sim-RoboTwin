@@ -22,7 +22,7 @@ from auto_init.camera_calibration import maybe_undistort_mask
 from auto_init.depth_anything_v2_runner import run_depth_anything
 from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
-from auto_init.path_utils import REPLAY_POLICY_DIR, resolve_cli_path, resolve_existing_path, resolve_repo_path
+from auto_init.path_utils import REPLAY_POLICY_DIR, REPO_ROOT, resolve_cli_path, resolve_existing_path, resolve_repo_path
 from auto_init.real_data_reader import extract_first_frame_inputs
 from 坐标系转换 import (
     build_real_T_cam_from_eef,
@@ -54,6 +54,7 @@ def main() -> None:
     object_config = load_yaml(object_config_path)
     mesh_path = resolve_existing_path(
         object_config["mesh_path"],
+        REPO_ROOT,
         REPLAY_POLICY_DIR,
         object_config_path.parent,
     )
