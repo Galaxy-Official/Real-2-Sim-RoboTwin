@@ -186,7 +186,7 @@ From `policy/Replay_Policy`:
 ```bash
 python auto_init/debug_calibration_semantics.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0
 ```
 
@@ -211,7 +211,7 @@ To generate the alternate pinhole-output assumption inputs directly, run:
 ```bash
 python auto_init/debug_calibration_pinhole_assumption.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0
 ```
 
@@ -249,7 +249,7 @@ by `camera_calibration.py`:
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0
 ```
 
@@ -258,7 +258,7 @@ If the configured mask path is not present yet, either provide it explicitly:
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --mask-image /path/to/episode_000000_mask.png
 ```
@@ -268,7 +268,7 @@ or skip mask checks while validating the RGB frame and intrinsics:
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --allow-missing-mask
 ```
@@ -292,7 +292,7 @@ runtime-undistorted RGB/mask outputs, add:
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --include-fisheye-reference
 ```
@@ -307,10 +307,11 @@ in the first wrist-camera frame. The default path is controlled by
 {data_dir}/masks/episode_{episode_index:06d}.png
 ```
 
-For episode `0`, this is usually:
+For the current server layout, run from `policy/Replay_Policy` with
+`--data-dir data/handcap2603/block_stack_0401`; episode `0` mask is:
 
 ```text
-../../replay_data/block_stack/masks/episode_000000.png
+data/handcap2603/block_stack_0401/masks/episode_000000.png
 ```
 
 ### Installing SAM2 On The Server
@@ -387,7 +388,7 @@ conda activate sam2
 
 python auto_init/generate_sam_mask.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --write-prompt-template init_meta/cache/mask_generation_debug/episode_000000_prompt.json
 ```
@@ -457,7 +458,7 @@ conda activate sam2
 
 python auto_init/generate_sam_mask.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
   --backend sam2 \
@@ -472,7 +473,7 @@ Or run SAM v1 if your environment uses `segment_anything`:
 ```bash
 python auto_init/generate_sam_mask.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0 \
   --prompt-json init_meta/cache/mask_generation_debug/episode_000000_prompt.json \
   --backend sam \
@@ -495,7 +496,7 @@ After the overlay looks correct, verify that the mask was saved to the default
 path:
 
 ```bash
-ls -lh ../../replay_data/block_stack/masks/episode_000000.png
+ls -lh data/handcap2603/block_stack_0401/masks/episode_000000.png
 ```
 
 Then rerun step 3 without `--allow-missing-mask`:
@@ -503,9 +504,89 @@ Then rerun step 3 without `--allow-missing-mask`:
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
   --config deploy_policy.yml \
-  --data-dir ../../replay_data/block_stack \
+  --data-dir data/handcap2603/block_stack_0401 \
   --episode-index 0
 ```
+
+## Debugging Depth Anything 3
+
+Step 4 verifies the single-frame RGB + K input to Depth Anything 3 and the
+resulting metric depth `.npy` file before FoundationPose is introduced.
+
+If Depth Anything 3 is not installed on the server yet, install it under the
+RoboTwin root:
+
+```bash
+cd /path/to/RoboTwin
+mkdir -p third_party
+cd third_party
+git clone https://github.com/ByteDance-Seed/Depth-Anything-3.git
+
+conda create -n depth-anything-3 python=3.10 -y
+conda activate depth-anything-3
+cd /path/to/RoboTwin/third_party/Depth-Anything-3
+python -m pip install -e .
+python -m pip install pillow numpy pyyaml opencv-python
+```
+
+Verify the import:
+
+```bash
+conda activate depth-anything-3
+python - <<'PY'
+import torch
+from depth_anything_3.api import DepthAnything3
+print("torch", torch.__version__, "cuda", torch.cuda.is_available())
+print("DepthAnything3 import ok", DepthAnything3)
+PY
+```
+
+From `policy/Replay_Policy`, first verify input preparation only:
+
+```bash
+cd /path/to/RoboTwin/policy/Replay_Policy
+
+python auto_init/debug_depth_anything.py \
+  --config deploy_policy.yml \
+  --data-dir data/handcap2603/block_stack_0401 \
+  --episode-index 0 \
+  --prepare-only
+```
+
+Then run Depth Anything 3 through the command configured in
+`deploy_policy.yml`:
+
+```bash
+python auto_init/debug_depth_anything.py \
+  --config deploy_policy.yml \
+  --data-dir data/handcap2603/block_stack_0401 \
+  --episode-index 0
+```
+
+The script writes:
+
+```text
+init_meta/cache/step4_depth_anything_debug/
+```
+
+Inspect:
+
+- `episode_xxxxxx_depth.npy`: metric depth array for FoundationPose
+- `episode_xxxxxx_depth_vis.png`: normalized depth visualization
+- `episode_xxxxxx_depth_anything_debug.json`: shape, finite ratio, positive ratio, and mask-region depth stats
+
+Expected checks:
+
+- `first_frame_not_undistorted: true`
+- `intrinsics_source_is_pinhole_calibration: true`
+- `depth_shape_matches_image: true`
+- `depth_global_finite_ratio_ok: true`
+- `depth_global_positive_ratio_ok: true`
+- if a mask exists, `depth_mask_finite_ratio_ok: true` and `depth_mask_positive_ratio_ok: true`
+
+If the server cannot access Hugging Face during the first run, download the
+`depth-anything/da3metric-large` model manually and replace `--model-dir` in
+`deploy_policy.yml` with that local model directory.
 
 ## Wrapper Roles
 
