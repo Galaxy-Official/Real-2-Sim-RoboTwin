@@ -593,6 +593,120 @@ If the server cannot access Hugging Face during the first run, download the
 Step 5 verifies the exact single-frame inputs to FoundationPose, then runs
 FoundationPose registration and checks the pose JSON.
 
+FoundationPose is not installed by this repository. The official project
+recommends Docker; its Conda setup is marked experimental. If you use Conda on
+the server, install and verify it before running step 5.
+
+From the RoboTwin root:
+
+```bash
+cd /inspire/hdd/project/robot-reasoning/xuyue-p-xuyue/lihong_workspace/lihong/RoboTwin
+mkdir -p third_party
+cd third_party
+
+# Skip this if the directory already exists.
+git clone https://github.com/NVlabs/FoundationPose.git
+cd FoundationPose
+```
+
+Create and enter the environment:
+
+```bash
+conda create -n foundationpose python=3.9 -y
+conda activate foundationpose
+```
+
+Before installing `nvdiffrast`, verify that this exact environment has PyTorch
+and a CUDA build visible:
+
+```bash
+python - <<'PY'
+import sys
+print(sys.executable)
+try:
+    import torch
+except Exception as exc:
+    raise SystemExit(f"PyTorch import failed: {exc}")
+print("torch:", torch.__version__)
+print("torch cuda:", torch.version.cuda)
+print("cuda available:", torch.cuda.is_available())
+PY
+```
+
+If that fails because `torch` is missing, install PyTorch first. Use the CUDA
+version that matches the server driver/toolkit. CUDA 11.8 is the official
+FoundationPose baseline:
+
+```bash
+conda install pytorch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+```
+
+Then install the remaining Python dependencies:
+
+```bash
+python -m pip install -r requirements.txt
+python -m pip install setuptools wheel ninja pybind11
+```
+
+Install `nvdiffrast` only after PyTorch imports correctly. The
+`--no-build-isolation` flag is required so the CUDA extension builds against the
+PyTorch installed in the active Conda environment:
+
+```bash
+python -m pip install --no-cache-dir --no-build-isolation git+https://github.com/NVlabs/nvdiffrast.git
+```
+
+If this command still fails, first check that the server has CUDA compiler
+tools, not only CUDA runtime:
+
+```bash
+which nvcc
+nvcc -V
+```
+
+Do not use `sudo` for the build commands; it can switch away from the active
+Conda Python and make `torch` disappear during extension builds.
+
+Verify `nvdiffrast`:
+
+```bash
+python - <<'PY'
+import torch
+import nvdiffrast.torch as dr
+print("torch:", torch.__version__, "cuda:", torch.version.cuda)
+print("nvdiffrast import ok")
+PY
+```
+
+Build FoundationPose extensions:
+
+```bash
+conda install conda-forge::eigen=3.4.0 -y
+CMAKE_PREFIX_PATH=$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11:$CONDA_PREFIX \
+  bash build_all_conda.sh
+```
+
+Verify FoundationPose imports from `third_party/FoundationPose`:
+
+```bash
+python - <<'PY'
+import nvdiffrast.torch as dr
+from estimater import FoundationPose, PoseRefinePredictor, ScorePredictor
+print("FoundationPose import ok")
+PY
+```
+
+FoundationPose also needs its pretrained weights under:
+
+```text
+third_party/FoundationPose/weights/2023-10-28-18-33-37
+third_party/FoundationPose/weights/2024-01-11-20-02-45
+```
+
+If the environment name is not `foundationpose`, update
+`auto_init.foundationpose.command` in `deploy_policy.yml` and replace the
+environment name after `conda run -n`.
+
 The current block-stack data uses `121_orange-block`. The default object config
 is:
 
