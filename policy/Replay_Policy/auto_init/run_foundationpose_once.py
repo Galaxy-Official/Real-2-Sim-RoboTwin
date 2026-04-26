@@ -192,9 +192,18 @@ def _run_registration(
         import nvdiffrast.torch as dr
         from estimater import FoundationPose, PoseRefinePredictor, ScorePredictor
     except Exception as exc:
+        hint = ""
+        if isinstance(exc, ModuleNotFoundError) and exc.name:
+            hint = f" Missing Python module: {exc.name}."
+            if exc.name == "pytorch3d":
+                hint += (
+                    " Install PyTorch3D in the FoundationPose environment, "
+                    "for example from the official pytorch3d stable source build."
+                )
         raise ImportError(
             "Failed to import FoundationPose runtime. "
             "Check that the FoundationPose environment is activated and build_all.sh/build_all_conda.sh has completed."
+            + hint
         ) from exc
 
     mesh = trimesh.load(str(mesh_path), force="mesh")

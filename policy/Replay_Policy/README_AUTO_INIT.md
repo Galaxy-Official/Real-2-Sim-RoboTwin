@@ -620,10 +620,12 @@ conda create -n foundationpose python=3.9 -y
 conda activate foundationpose
 ```
 
-If `nvcc -V` reports CUDA 12.4, use this PyTorch build:
+If `nvcc -V` reports CUDA 12.4, use this PyTorch build. Use PyTorch 2.4.1 here
+instead of newer PyTorch releases because PyTorch3D's official install support
+currently includes PyTorch 2.4.1:
 
 ```bash
-python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+python -m pip install torch==2.4.1 torchvision==0.19.1 torchaudio==2.4.1 \
   --index-url https://download.pytorch.org/whl/cu124
 ```
 
@@ -673,6 +675,17 @@ grep -vE '^(--extra-index-url|torch==|torchvision==|torchaudio==)' requirements.
 python -m pip install --no-build-isolation -r /tmp/foundationpose_requirements_no_torch.txt
 ```
 
+Install PyTorch3D from source against the active PyTorch/CUDA pair:
+
+```bash
+python -m pip install fvcore iopath
+MAX_JOBS=8 FORCE_CUDA=1 python -m pip install --no-cache-dir --no-build-isolation \
+  "git+https://github.com/facebookresearch/pytorch3d.git@stable"
+```
+
+If the server runs out of memory while compiling PyTorch3D, rerun the same
+command with `MAX_JOBS=4`.
+
 Install `nvdiffrast` only after PyTorch imports correctly. The
 `--no-build-isolation` flag is required so the CUDA extension builds against the
 PyTorch installed in the active Conda environment:
@@ -698,8 +711,9 @@ Verify `nvdiffrast`:
 python - <<'PY'
 import torch
 import nvdiffrast.torch as dr
+from pytorch3d.transforms import so3_log_map
 print("torch:", torch.__version__, "cuda:", torch.version.cuda)
-print("nvdiffrast import ok")
+print("nvdiffrast and pytorch3d import ok")
 PY
 ```
 
