@@ -720,9 +720,21 @@ PY
 Build FoundationPose extensions:
 
 ```bash
-conda install conda-forge::eigen=3.4.0 -y
-CMAKE_PREFIX_PATH=$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11:$CONDA_PREFIX \
-  bash build_all_conda.sh
+conda install -c conda-forge eigen=3.4.0 cmake make pkg-config cxx-compiler c-compiler -y
+
+# Force the build to use tools from the active Conda environment, not a broken
+# system cmake such as /usr/local/bin/cmake.
+export PATH="$CONDA_PREFIX/bin:$PATH"
+hash -r
+which cmake
+cmake --version
+
+# build_all_conda.sh calls pip install -e internally. Disable pip build
+# isolation globally so those internal builds can see the active environment's
+# torch installation.
+export PIP_NO_BUILD_ISOLATION=1
+export CMAKE_PREFIX_PATH="$CONDA_PREFIX/lib/python3.9/site-packages/pybind11/share/cmake/pybind11:$CONDA_PREFIX"
+bash build_all_conda.sh
 ```
 
 Verify FoundationPose imports from `third_party/FoundationPose`:
