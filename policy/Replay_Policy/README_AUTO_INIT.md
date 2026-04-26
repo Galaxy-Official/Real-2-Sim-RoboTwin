@@ -609,15 +609,33 @@ git clone https://github.com/NVlabs/FoundationPose.git
 cd FoundationPose
 ```
 
-Create and enter the environment:
+Create and enter the environment. The simplest reliable rule is: the PyTorch
+CUDA version must match the CUDA toolkit reported by `nvcc -V`, because
+`nvdiffrast` is compiled locally.
 
 ```bash
+nvcc -V
+
 conda create -n foundationpose python=3.9 -y
 conda activate foundationpose
 ```
 
+If `nvcc -V` reports CUDA 12.4, use this PyTorch build:
+
+```bash
+python -m pip install torch==2.5.1 torchvision==0.20.1 torchaudio==2.5.1 \
+  --index-url https://download.pytorch.org/whl/cu124
+```
+
+If your server explicitly provides CUDA 11.8 instead, use the official
+FoundationPose baseline:
+
+```bash
+conda install pytorch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y
+```
+
 Before installing `nvdiffrast`, verify that this exact environment has PyTorch
-and a CUDA build visible:
+and that `torch.version.cuda` matches `nvcc -V`:
 
 ```bash
 python - <<'PY'
@@ -633,18 +651,15 @@ print("cuda available:", torch.cuda.is_available())
 PY
 ```
 
-If that fails because `torch` is missing, install PyTorch first. Use the CUDA
-version that matches the server driver/toolkit. CUDA 11.8 is the official
-FoundationPose baseline:
+Then install the remaining Python dependencies. Do not run the official
+`requirements.txt` directly after installing a CUDA 12.4 PyTorch build, because
+that file pins `torch/torchvision/torchaudio` to CUDA 11.8. Filter those lines
+out:
 
 ```bash
-conda install pytorch==2.0.0 torchvision==0.15.1 torchaudio==2.0.1 pytorch-cuda=11.8 -c pytorch -c nvidia -y
-```
-
-Then install the remaining Python dependencies:
-
-```bash
-python -m pip install -r requirements.txt
+grep -vE '^(--extra-index-url|torch==|torchvision==|torchaudio==)' requirements.txt \
+  > /tmp/foundationpose_requirements_no_torch.txt
+python -m pip install -r /tmp/foundationpose_requirements_no_torch.txt
 python -m pip install setuptools wheel ninja pybind11
 ```
 
