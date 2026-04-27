@@ -235,6 +235,7 @@ def _run_registration(
         ) from exc
 
     mesh = trimesh.load(str(mesh_path), force="mesh")
+    mesh = _make_mesh_visual_foundationpose_compatible(mesh, trimesh)
     if debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
 
@@ -276,6 +277,60 @@ def _run_registration(
         pose = pose[0]
     pose = np.asarray(pose, dtype=np.float64).reshape(4, 4)
     return pose
+
+
+def _make_mesh_visual_foundationpose_compatible(mesh, trimesh_module):
+    """FoundationPose expects TextureVisuals materials to expose material.image."""
+    texture_visuals_cls = getattr(trimesh_module.visual.texture, "TextureVisuals", None)
+    if texture_visuals_cls is None or not isinstance(mesh.visual, texture_visuals_cls):
+        return mesh
+
+    material = getattr(mesh.visual, "material", None)
+    if getattr(material, "image", None) is not None:
+        return mesh
+
+    color = _extract_material_rgba(material)
+    vertex_colors = np.tile(color.reshape(1, 4), (len(mesh.vertices), 1))
+    try:
+        color_visuals_cls = trimesh_module.visual.ColorVisuals
+    except AttributeError:
+        color_visuals_cls = trimesh_module.visual.color.ColorVisuals
+    mesh.visual = color_visuals_cls(mesh=mesh, vertex_colors=vertex_colors)
+    print(
+        "[run_foundationpose_once] Converted texture material without image "
+        f"({type(material).__name__}) to vertex colors {color.tolist()}"
+    )
+    return mesh
+
+
+def _extract_material_rgba(material) -> np.ndarray:
+    for attr_name in ("baseColorFactor", "main_color", "diffuse", "ambient"):
+        try:
+            value = getattr(material, attr_name, None)
+        except Exception:
+            value = None
+        if value is None:
+            continue
+        color = _coerce_rgba(value)
+        if color is not None:
+            return color
+    return np.array([128, 128, 128, 255], dtype=np.uint8)
+
+
+def _coerce_rgba(value) -> np.ndarray | None:
+    try:
+        color = np.asarray(value, dtype=np.float64).reshape(-1)
+    except Exception:
+        return None
+    if color.size < 3 or not np.all(np.isfinite(color[:3])):
+        return None
+    if color.size == 3:
+        color = np.concatenate([color, np.array([1.0 if np.nanmax(color) <= 1.0 else 255.0])])
+    else:
+        color = color[:4]
+    if np.nanmax(color) <= 1.0:
+        color = color * 255.0
+    return np.clip(np.round(color), 0, 255).astype(np.uint8)
 
 
 if __name__ == "__main__":
