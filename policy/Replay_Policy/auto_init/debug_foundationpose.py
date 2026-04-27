@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import numpy as np
-from PIL import Image
+from PIL import Image, ImageDraw
 import yaml
 
 
@@ -24,6 +24,7 @@ from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
 from auto_init.path_utils import REPLAY_POLICY_DIR, REPO_ROOT, resolve_cli_path, resolve_existing_path, resolve_repo_path
 from auto_init.real_data_reader import extract_first_frame_inputs
+from auto_init.run_foundationpose_once import _resolve_mesh_scale
 
 
 def parse_args() -> argparse.Namespace:
@@ -97,6 +98,7 @@ def main() -> None:
 
     fp_output_path = None
     pose_summary = None
+    pose_overlay_path = None
     run_status: dict[str, Any]
     if args.prepare_only:
         run_status = {"status": "prepared_only"}
@@ -112,9 +114,19 @@ def main() -> None:
             episode_index=args.episode_index,
         )
         pose_summary = _summarize_pose(cam_T_obj)
+        pose_overlay_path = output_dir / f"episode_{args.episode_index:06d}_foundationpose_pose_overlay.png"
+        _write_pose_overlay(
+            image_path=Path(first_frame["frame_path"]),
+            mask_path=mask_path,
+            mesh_path=mesh_path,
+            K=np.asarray(first_frame["intrinsics_matrix"], dtype=np.float64),
+            cam_T_obj=np.asarray(cam_T_obj, dtype=np.float64),
+            output_path=pose_overlay_path,
+        )
         run_status = {
             "status": "ran_foundationpose",
             "foundationpose_output_path": str(Path(fp_output_path).resolve()),
+            "pose_overlay_path": str(pose_overlay_path.resolve()),
         }
 
     summary = {
@@ -128,6 +140,7 @@ def main() -> None:
         "run_status": run_status,
         "inputs": input_summary,
         "foundationpose_output_path": None if fp_output_path is None else str(Path(fp_output_path).resolve()),
+        "pose_overlay_path": None if pose_overlay_path is None else str(pose_overlay_path.resolve()),
         "pose": pose_summary,
     }
     summary["checks"] = _build_checks(summary, require_pose=not args.prepare_only)
@@ -224,6 +237,113 @@ def _write_input_overlay(image_path: Path, mask_path: Path, output_path: Path) -
     overlay[mask] = 0.55 * overlay[mask] + 0.45 * np.array([0, 255, 80], dtype=np.float32)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     Image.fromarray(np.clip(overlay, 0, 255).astype(np.uint8)).save(output_path)
+
+
+def _write_pose_overlay(
+    image_path: Path,
+    mask_path: Path,
+    mesh_path: Path,
+    K: np.ndarray,
+    cam_T_obj: np.ndarray,
+    output_path: Path,
+) -> None:
+    try:
+        import trimesh
+    except ImportError as exc:
+        raise ImportError("Pose visualization requires trimesh in the active environment.") from exc
+
+    rgb = np.asarray(Image.open(image_path).convert("RGB"), dtype=np.float32)
+    mask = np.asarray(Image.open(mask_path).convert("L")) > 0
+    if mask.shape == rgb.shape[:2]:
+        rgb[mask] = 0.65 * rgb[mask] + 0.35 * np.array([0, 255, 80], dtype=np.float32)
+
+    mesh = trimesh.load(str(mesh_path), force="mesh")
+    mesh_scale = _resolve_mesh_scale(mesh_path, "auto")
+    if not np.allclose(mesh_scale, np.ones(3, dtype=np.float64)):
+        mesh.apply_scale(mesh_scale)
+
+    bounds = np.asarray(mesh.bounds, dtype=np.float64)
+    corners = _bbox_corners(bounds)
+    projected_corners, valid_corners = _project_points(corners, cam_T_obj, K)
+
+    image = Image.fromarray(np.clip(rgb, 0, 255).astype(np.uint8))
+    draw = ImageDraw.Draw(image)
+
+    edges = (
+        (0, 1), (1, 3), (3, 2), (2, 0),
+        (4, 5), (5, 7), (7, 6), (6, 4),
+        (0, 4), (1, 5), (2, 6), (3, 7),
+    )
+    for i, j in edges:
+        if valid_corners[i] and valid_corners[j]:
+            draw.line(
+                [tuple(projected_corners[i]), tuple(projected_corners[j])],
+                fill=(255, 220, 0),
+                width=3,
+            )
+
+    extents = bounds[1] - bounds[0]
+    axis_len = max(float(np.max(extents)) * 1.25, 0.02)
+    axes_3d = np.array(
+        [
+            [0.0, 0.0, 0.0],
+            [axis_len, 0.0, 0.0],
+            [0.0, axis_len, 0.0],
+            [0.0, 0.0, axis_len],
+        ],
+        dtype=np.float64,
+    )
+    axes_2d, axes_valid = _project_points(axes_3d, cam_T_obj, K)
+    axis_specs = (
+        (1, (255, 40, 40), "x"),
+        (2, (40, 255, 40), "y"),
+        (3, (40, 120, 255), "z"),
+    )
+    if axes_valid[0]:
+        origin = tuple(axes_2d[0])
+        draw.ellipse(
+            [origin[0] - 4, origin[1] - 4, origin[0] + 4, origin[1] + 4],
+            fill=(255, 255, 255),
+            outline=(0, 0, 0),
+        )
+        for idx, color, label in axis_specs:
+            if axes_valid[idx]:
+                end = tuple(axes_2d[idx])
+                draw.line([origin, end], fill=color, width=4)
+                draw.text((end[0] + 4, end[1] + 4), label, fill=color)
+
+    draw.text((10, 10), "yellow: mesh bbox | RGB axes: object frame | green: mask", fill=(255, 255, 255))
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    image.save(output_path)
+
+
+def _bbox_corners(bounds: np.ndarray) -> np.ndarray:
+    lo, hi = bounds
+    return np.array(
+        [
+            [lo[0], lo[1], lo[2]],
+            [hi[0], lo[1], lo[2]],
+            [lo[0], hi[1], lo[2]],
+            [hi[0], hi[1], lo[2]],
+            [lo[0], lo[1], hi[2]],
+            [hi[0], lo[1], hi[2]],
+            [lo[0], hi[1], hi[2]],
+            [hi[0], hi[1], hi[2]],
+        ],
+        dtype=np.float64,
+    )
+
+
+def _project_points(points_obj: np.ndarray, cam_T_obj: np.ndarray, K: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+    points_obj = np.asarray(points_obj, dtype=np.float64).reshape(-1, 3)
+    points_cam = (cam_T_obj[:3, :3] @ points_obj.T).T + cam_T_obj[:3, 3]
+    z = points_cam[:, 2]
+    valid = np.isfinite(points_cam).all(axis=1) & (z > 1e-6)
+    projected = np.full((points_obj.shape[0], 2), np.nan, dtype=np.float64)
+    projected[valid, 0] = K[0, 0] * points_cam[valid, 0] / z[valid] + K[0, 2]
+    projected[valid, 1] = K[1, 1] * points_cam[valid, 1] / z[valid] + K[1, 2]
+    valid &= np.isfinite(projected).all(axis=1)
+    return projected, valid
 
 
 def _depth_stats(values: np.ndarray) -> dict:

@@ -831,8 +831,13 @@ init_meta/cache/step5_foundationpose_debug/
 Inspect:
 
 - `episode_xxxxxx_foundationpose_input_overlay.png`
+- `episode_xxxxxx_foundationpose_pose_overlay.png`
 - `episode_xxxxxx_foundationpose.json`
 - `episode_xxxxxx_foundationpose_debug.json`
+
+The pose overlay projects the scaled mesh bounding box and object-frame axes
+back onto the wrist RGB image. Yellow is the projected mesh box, red/green/blue
+are the object `x/y/z` axes, and green is the SAM mask.
 
 Expected checks:
 
