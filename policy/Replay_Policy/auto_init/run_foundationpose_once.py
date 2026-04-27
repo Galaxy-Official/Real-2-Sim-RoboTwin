@@ -40,6 +40,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--debug-dir", default=None, help="Optional FoundationPose debug dir.")
     parser.add_argument("--est-refine-iter", default=5, type=int, help="Registration refinement iterations.")
     parser.add_argument("--depth-scale", default=1.0, type=float, help="Scale multiplier applied after loading depth.")
+    parser.add_argument(
+        "--mesh-scale",
+        default="auto",
+        help=(
+            "Scale applied to mesh vertices before FoundationPose. "
+            "Use 'auto' to read RoboTwin model_data*.json, 'none' for no scaling, "
+            "or one/three comma-separated floats."
+        ),
+    )
     parser.add_argument("--debug", default=0, type=int, help="Forwarded to FoundationPose when supported.")
     return parser.parse_args()
 
@@ -69,6 +78,7 @@ def main() -> None:
     pose = _run_registration(
         repo_root=repo_root,
         mesh_path=Path(args.mesh).resolve(),
+        mesh_scale_spec=args.mesh_scale,
         K=K,
         rgb=rgb,
         depth=depth,
@@ -91,6 +101,7 @@ def main() -> None:
         "intrinsics_matrix": np.asarray(K, dtype=float).tolist(),
         "est_refine_iter": args.est_refine_iter,
         "depth_scale": args.depth_scale,
+        "mesh_scale": _resolve_mesh_scale(Path(args.mesh).resolve(), args.mesh_scale).tolist(),
         "mask_pixel_count": int(mask.sum()),
     }
     if args.debug_dir:
@@ -206,6 +217,7 @@ def _load_intrinsics(path: Path) -> np.ndarray:
 def _run_registration(
     repo_root: Path,
     mesh_path: Path,
+    mesh_scale_spec: str,
     K: np.ndarray,
     rgb: np.ndarray,
     depth: np.ndarray,
@@ -235,6 +247,10 @@ def _run_registration(
         ) from exc
 
     mesh = trimesh.load(str(mesh_path), force="mesh")
+    mesh_scale = _resolve_mesh_scale(mesh_path, mesh_scale_spec)
+    if not np.allclose(mesh_scale, np.ones(3, dtype=np.float64)):
+        mesh.apply_scale(mesh_scale)
+        print(f"[run_foundationpose_once] Applied mesh scale {mesh_scale.tolist()} from spec '{mesh_scale_spec}'")
     mesh = _make_mesh_visual_foundationpose_compatible(mesh, trimesh)
     if debug_dir is not None:
         debug_dir.mkdir(parents=True, exist_ok=True)
@@ -277,6 +293,63 @@ def _run_registration(
         pose = pose[0]
     pose = np.asarray(pose, dtype=np.float64).reshape(4, 4)
     return pose
+
+
+def _resolve_mesh_scale(mesh_path: Path, scale_spec: str) -> np.ndarray:
+    spec = str(scale_spec).strip().lower()
+    if spec in {"", "none", "1", "1.0", "false", "no"}:
+        return np.ones(3, dtype=np.float64)
+    if spec != "auto":
+        return _parse_mesh_scale(scale_spec)
+
+    model_data_path = _find_robotwin_model_data(mesh_path)
+    if model_data_path is None:
+        return np.ones(3, dtype=np.float64)
+    try:
+        model_data = json.loads(model_data_path.read_text(encoding="utf-8"))
+        return _parse_mesh_scale(model_data.get("scale", [1.0, 1.0, 1.0]))
+    except Exception as exc:
+        raise ValueError(f"Failed to read RoboTwin mesh scale from {model_data_path}") from exc
+
+
+def _find_robotwin_model_data(mesh_path: Path) -> Path | None:
+    object_dir = mesh_path.parent
+    if object_dir.name in {"visual", "collision"}:
+        object_dir = object_dir.parent
+    if not object_dir.is_dir():
+        return None
+
+    stem = mesh_path.stem
+    digits = ""
+    for char in reversed(stem):
+        if char.isdigit():
+            digits = char + digits
+        else:
+            break
+    candidates = []
+    if digits:
+        candidates.append(object_dir / f"model_data{digits}.json")
+    candidates.append(object_dir / "model_data.json")
+    candidates.append(object_dir / "model_data0.json")
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate
+    return None
+
+
+def _parse_mesh_scale(value) -> np.ndarray:
+    if isinstance(value, str):
+        parts = [part for part in value.replace(",", " ").split() if part]
+        scale = np.asarray([float(part) for part in parts], dtype=np.float64)
+    else:
+        scale = np.asarray(value, dtype=np.float64).reshape(-1)
+    if scale.size == 1:
+        scale = np.repeat(scale.item(), 3).astype(np.float64)
+    if scale.size != 3:
+        raise ValueError(f"Expected mesh scale to have one or three values, got {value!r}")
+    if not np.all(np.isfinite(scale)) or np.any(scale <= 0):
+        raise ValueError(f"Mesh scale must be positive and finite, got {value!r}")
+    return scale
 
 
 def _make_mesh_visual_foundationpose_compatible(mesh, trimesh_module):

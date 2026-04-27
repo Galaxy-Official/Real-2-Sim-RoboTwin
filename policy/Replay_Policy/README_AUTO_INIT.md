@@ -775,6 +775,16 @@ symmetry: none
 This assumes the official RoboTwin asset exists at
 `RoboTwin/assets/objects/121_orange-block/visual/base0.glb`.
 
+RoboTwin object assets are usually loaded with the per-object scale from
+`model_data*.json`. The FoundationPose wrapper uses `--mesh-scale auto` by
+default, which reads that scale and applies it to the mesh before registration.
+For `121_orange-block`, this should apply:
+
+```text
+assets/objects/121_orange-block/model_data0.json
+scale: [0.034, 0.034, 0.034]
+```
+
 From `policy/Replay_Policy`, first validate inputs only:
 
 ```bash
