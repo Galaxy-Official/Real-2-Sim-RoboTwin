@@ -3,7 +3,7 @@ policy_name: Replay_Policy
 task_name: replay_block_auto_init
 task_config: replay_block_auto_init
 
-data_dir: /path/to/lerobot_dataset
+data_dir: /data/handcap2603/block_stack_0401
 episode_index: 0
 replay_arm: right
 
@@ -28,16 +28,17 @@ auto_init:
     cx: 320.0
     cy: 240.0
   camera_calibration:
-    # K_new is treated as the pinhole intrinsics for the raw/preprocessed
-    # 640x480 wrist frame. D_raw is recorded as provenance only.
-    type: pinhole
+    # Use K_new + D_raw as fisheye calibration for the raw 640x480 wrist frame.
+    # Runtime auto-init first undistorts RGB/mask, then passes the undistorted
+    # pinhole image and its new_K to Depth Anything 3 and FoundationPose.
+    type: fisheye
     path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
     calibration_image_size: null
   undistort:
-    enabled: false
+    enabled: true
     balance: 0.0
     fov_scale: 1.0
-    mask: false
+    mask: true
     frame_output_template: "{cache_dir}/episode_{episode_index:06d}_wrist_undistorted.png"
     mask_output_template: "{cache_dir}/episode_{episode_index:06d}_mask_undistorted.png"
   aloha_wrist_to_eef_pose:
@@ -86,7 +87,7 @@ auto_init:
       - conda
       - run
       - -n
-      - depth-anything-3
+      - umi
       - python
       - policy/Replay_Policy/auto_init/run_depth_anything_metric.py
       - --repo-root

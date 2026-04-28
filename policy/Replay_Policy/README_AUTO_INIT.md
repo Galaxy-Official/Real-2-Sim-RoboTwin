@@ -90,16 +90,13 @@ D_raw = [-0.10000000, 0.05000000, -0.01000000, 0.00100000]
 rms = 0.5
 ```
 
-The current runtime path treats `K_new` as the pinhole intrinsics for the raw
-640x480 wrist frame. `build_init_meta.py` therefore uses the extracted raw
-frame directly and writes `episode_xxxxxx_intrinsics.json` from `K_new` in the
-calibration `.npz`.
+The current runtime path treats `K_new + D_raw` as fisheye calibration for the
+raw 640x480 wrist frame. `build_init_meta.py` undistorts the extracted wrist
+RGB frame and mask before running Depth Anything 3 and FoundationPose. This
+change was made because metric depth on the raw fisheye frame was observed to
+be much larger than the real wrist-camera-to-object distance.
 
-The fisheye `D_raw` values are kept only as calibration provenance. They are not
-used by the default replay pipeline because step-2 debugging showed that
-runtime fisheye undistortion over-warps the image.
-
-The old fisheye runtime path used this calibration to:
+The current fisheye runtime path uses this calibration to:
 
 - undistort the extracted wrist RGB frame
 - undistort the object mask with nearest-neighbor interpolation
@@ -135,7 +132,22 @@ Recommended path:
    - `policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz`
 3. Check the video resolution:
    - current wrist videos are `640x480`
-4. If `K_new` is already the pinhole matrix for the replay wrist frame, keep:
+4. The current default treats `K_new + D_raw` as fisheye calibration for the raw
+   replay wrist frame and undistorts RGB/mask before Depth Anything 3 and
+   FoundationPose:
+
+```yaml
+auto_init:
+  camera_calibration:
+    type: fisheye
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
+  undistort:
+    enabled: true
+    mask: true
+```
+
+5. If `K_new` is later confirmed to already be the pinhole matrix for the replay
+   wrist frame, disable runtime undistortion:
 
 ```yaml
 auto_init:
@@ -147,9 +159,8 @@ auto_init:
     mask: false
 ```
 
-5. If a future calibration provides raw fisheye intrinsics and distortion,
-   re-enable runtime undistortion and set the original calibration resolution
-   explicitly when needed:
+6. If a future calibration provides raw fisheye intrinsics at a different
+   resolution, set the original calibration resolution explicitly when needed:
 
 ```yaml
 auto_init:
@@ -177,9 +188,10 @@ video frame resolution before computing the undistorted pinhole `new_K`.
 
 ### Debugging Calibration Semantics
 
-Step-2 debugging has selected the raw + `K_new` pinhole path for the current
-dataset. These scripts remain useful when comparing or revisiting the
-alternative raw-fisheye interpretation.
+Step-2 originally compared raw + `K_new` pinhole against runtime fisheye
+undistortion. Depth Anything 3 scale checks later showed that running DA3 on
+the raw fisheye frame can produce depth that is far too large, so the current
+default uses runtime fisheye undistortion.
 
 From `policy/Replay_Policy`:
 
@@ -279,15 +291,15 @@ The script writes:
 init_meta/cache/step3_camera_calibration_debug/
 ```
 
-For the current raw + `K_new` pinhole logic, expected results are:
+For the current fisheye-undistort logic, expected results are:
 
-- `episode_xxxxxx_current_config_raw_vs_runtime_frame.png` should show identical images
-- `episode_xxxxxx_current_config_raw_vs_runtime_mask.png` should show identical masks, if a mask is available
-- `episode_xxxxxx_current_config_intrinsics.json` should have `source: pinhole_calibration`
-- `episode_xxxxxx_camera_calibration_outputs.json` should report `frame_undistorted: false`
+- `episode_xxxxxx_current_config_raw_vs_runtime_frame.png` should show the undistorted runtime frame
+- `episode_xxxxxx_current_config_raw_vs_runtime_mask.png` should show the undistorted runtime mask, if a mask is available
+- `episode_xxxxxx_current_config_intrinsics.json` should have `source: fisheye_undistorted`
+- `episode_xxxxxx_camera_calibration_outputs.json` should report `frame_undistorted: true`
 
-To additionally force the old fisheye interpretation and generate reference
-runtime-undistorted RGB/mask outputs, add:
+To additionally force a fisheye reference pass while testing a non-fisheye
+configuration, add:
 
 ```bash
 python auto_init/debug_camera_calibration_outputs.py \
@@ -577,8 +589,8 @@ Inspect:
 
 Expected checks:
 
-- `first_frame_not_undistorted: true`
-- `intrinsics_source_is_pinhole_calibration: true`
+- `first_frame_undistortion_matches_config: true`
+- `intrinsics_source_matches_config: true`
 - `depth_shape_matches_image: true`
 - `depth_global_finite_ratio_ok: true`
 - `depth_global_positive_ratio_ok: true`
@@ -846,7 +858,8 @@ Expected checks:
 - `rgb_depth_shape_match: true`
 - `depth_mask_shape_match: true`
 - `mask_nonempty: true`
-- `intrinsics_source_is_pinhole_calibration: true`
+- `first_frame_undistortion_matches_config: true`
+- `intrinsics_source_matches_config: true`
 - after running FoundationPose, `pose_present: true`
 - `pose_translation_positive_z: true`
 - `pose_rotation_det_ok: true`

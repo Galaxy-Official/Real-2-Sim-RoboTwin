@@ -21,6 +21,7 @@ if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
 from auto_init.depth_anything_v2_runner import run_depth_anything
+from auto_init.camera_calibration import maybe_undistort_mask
 from auto_init.mask_provider import resolve_mask_path
 from auto_init.path_utils import resolve_cli_path, resolve_repo_path
 from auto_init.real_data_reader import extract_first_frame_inputs
@@ -64,6 +65,14 @@ def main() -> None:
         frame_image_override=args.frame_image,
     )
     mask_path, mask_error = _resolve_mask(config, args)
+    if mask_path is not None:
+        mask_path = maybe_undistort_mask(
+            auto_init_cfg=run_config.get("auto_init", {}),
+            mask_path=mask_path,
+            cache_dir=inputs_dir,
+            episode_index=args.episode_index,
+            calibration=first_frame.get("calibration"),
+        )
     if mask_error and not args.allow_missing_mask:
         raise FileNotFoundError(
             f"{mask_error} Pass --allow-missing-mask to skip mask depth statistics."
@@ -119,8 +128,9 @@ def main() -> None:
         "depth": depth_summary,
         "expected": {
             "image_size": [640, 480],
-            "runtime_frame_should_equal_raw": True,
-            "intrinsics_source_should_be": "pinhole_calibration",
+            "runtime_frame_should_equal_raw": not _expected_frame_undistorted(config),
+            "frame_undistorted_should_be": _expected_frame_undistorted(config),
+            "intrinsics_source_should_be": _expected_intrinsics_source(config),
             "depth_shape_should_match_image_hw": True,
             "depth_units": "meters after DA3 metric scaling",
         },
@@ -232,9 +242,12 @@ def _write_depth_vis(depth: np.ndarray, output_path: Path, percentiles: tuple[fl
 def _build_checks(summary: dict) -> dict:
     inputs = summary["inputs"]
     depth = summary["depth"]
+    expected = summary["expected"]
     checks = {
-        "first_frame_not_undistorted": inputs["first_frame_undistorted"] is False,
-        "intrinsics_source_is_pinhole_calibration": _intrinsics_source(inputs["intrinsics_path"]) == "pinhole_calibration",
+        "first_frame_undistortion_matches_config": inputs["first_frame_undistorted"]
+        is bool(expected["frame_undistorted_should_be"]),
+        "intrinsics_source_matches_config": _intrinsics_source(inputs["intrinsics_path"])
+        == expected["intrinsics_source_should_be"],
     }
     if depth is None:
         checks["depth_present"] = False
@@ -258,10 +271,33 @@ def _intrinsics_source(path: str | Path) -> str | None:
     return payload.get("source")
 
 
+def _expected_frame_undistorted(config: dict) -> bool:
+    auto_init_cfg = config.get("auto_init", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    has_calibration = bool(calib_cfg.get("path"))
+    calib_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    return has_calibration and calib_type != "pinhole" and bool(undistort_cfg.get("enabled", True))
+
+
+def _expected_intrinsics_source(config: dict) -> str:
+    auto_init_cfg = config.get("auto_init", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    if not calib_cfg.get("path"):
+        return "manual"
+    calib_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    if calib_type == "pinhole":
+        return "pinhole_calibration"
+    if undistort_cfg.get("enabled", True):
+        return "fisheye_undistorted"
+    return "fisheye_raw_not_undistorted"
+
+
 def _raise_on_failed_checks(checks: dict, require_depth: bool = True) -> None:
     required_checks = {
-        "first_frame_not_undistorted",
-        "intrinsics_source_is_pinhole_calibration",
+        "first_frame_undistortion_matches_config",
+        "intrinsics_source_matches_config",
     }
     if require_depth:
         required_checks.update(

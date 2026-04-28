@@ -20,6 +20,7 @@ REPLAY_POLICY_DIR = THIS_DIR.parent
 if str(REPLAY_POLICY_DIR) not in sys.path:
     sys.path.insert(0, str(REPLAY_POLICY_DIR))
 
+from auto_init.camera_calibration import maybe_undistort_mask
 from auto_init.foundationpose_runner import run_foundationpose
 from auto_init.mask_provider import resolve_mask_path
 from auto_init.path_utils import REPLAY_POLICY_DIR, REPO_ROOT, resolve_cli_path, resolve_existing_path, resolve_repo_path
@@ -80,6 +81,13 @@ def main() -> None:
     )
     depth_path = _resolve_depth_path(args, cache_dir)
     mask_path = _resolve_mask_path(config, args)
+    mask_path = maybe_undistort_mask(
+        auto_init_cfg=run_config.get("auto_init", {}),
+        mask_path=mask_path,
+        cache_dir=inputs_dir,
+        episode_index=args.episode_index,
+        calibration=first_frame.get("calibration"),
+    )
 
     input_summary = _summarize_inputs(
         image_path=Path(first_frame["frame_path"]),
@@ -142,6 +150,10 @@ def main() -> None:
         "foundationpose_output_path": None if fp_output_path is None else str(Path(fp_output_path).resolve()),
         "pose_overlay_path": None if pose_overlay_path is None else str(pose_overlay_path.resolve()),
         "pose": pose_summary,
+        "expected": {
+            "frame_undistorted_should_be": _expected_frame_undistorted(config),
+            "intrinsics_source_should_be": _expected_intrinsics_source(config),
+        },
     }
     summary["checks"] = _build_checks(summary, require_pose=not args.prepare_only)
 
@@ -381,14 +393,17 @@ def _summarize_pose(cam_T_obj: np.ndarray) -> dict:
 
 def _build_checks(summary: dict, require_pose: bool) -> dict:
     inputs = summary["inputs"]
+    expected = summary["expected"]
     checks = {
         "mesh_exists": bool(summary["mesh_status"]["exists"]),
         "mesh_not_placeholder": not bool(summary["mesh_status"]["looks_placeholder"]),
-        "first_frame_not_undistorted": inputs["first_frame_undistorted"] is False,
+        "first_frame_undistortion_matches_config": inputs["first_frame_undistorted"]
+        is bool(expected["frame_undistorted_should_be"]),
         "rgb_depth_shape_match": inputs["rgb_shape"][:2] == inputs["depth_shape"],
         "depth_mask_shape_match": inputs["depth_shape"] == inputs["mask_shape"],
         "mask_nonempty": inputs["mask_area_px"] > 0,
-        "intrinsics_source_is_pinhole_calibration": inputs["intrinsics"].get("source") == "pinhole_calibration",
+        "intrinsics_source_matches_config": inputs["intrinsics"].get("source")
+        == expected["intrinsics_source_should_be"],
         "depth_mask_positive_ratio_ok": inputs["depth_stats_mask"] is not None
         and inputs["depth_stats_mask"].get("positive_finite_ratio", 0.0) >= 0.95,
     }
@@ -409,6 +424,29 @@ def _raise_on_failed_checks(checks: dict, allow_placeholder_mesh: bool = False) 
     failures = [name for name, ok in checks.items() if ok is False and name not in ignored]
     if failures:
         raise SystemExit(f"FoundationPose debug checks failed: {failures}")
+
+
+def _expected_frame_undistorted(config: dict) -> bool:
+    auto_init_cfg = config.get("auto_init", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    has_calibration = bool(calib_cfg.get("path"))
+    calib_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    return has_calibration and calib_type != "pinhole" and bool(undistort_cfg.get("enabled", True))
+
+
+def _expected_intrinsics_source(config: dict) -> str:
+    auto_init_cfg = config.get("auto_init", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    if not calib_cfg.get("path"):
+        return "manual"
+    calib_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    if calib_type == "pinhole":
+        return "pinhole_calibration"
+    if undistort_cfg.get("enabled", True):
+        return "fisheye_undistorted"
+    return "fisheye_raw_not_undistorted"
 
 
 if __name__ == "__main__":

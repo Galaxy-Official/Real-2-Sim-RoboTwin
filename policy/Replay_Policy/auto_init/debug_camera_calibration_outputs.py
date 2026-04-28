@@ -101,10 +101,7 @@ def main() -> None:
         "current_config": current,
         "fisheye_reference": fisheye_reference,
         "expected_current_result": _expected_current_result(config),
-        "decision_note": (
-            "Current raw+K_new pinhole logic should keep frame_path equal to raw_frame_path, "
-            "keep the mask unchanged, and write intrinsics with source=pinhole_calibration."
-        ),
+        "decision_note": _decision_note(config),
     }
 
     summary_path = output_dir / f"episode_{args.episode_index:06d}_camera_calibration_outputs.json"
@@ -394,27 +391,64 @@ def _expected_current_result(config: dict) -> dict:
         "expected_frame_undistorted": False
         if str(calib_cfg.get("type", "")).lower() == "pinhole"
         else bool(undistort_cfg.get("enabled", True)),
-        "expected_intrinsics_source_for_current_default": "pinhole_calibration",
+        "expected_mask_undistorted": bool(undistort_cfg.get("enabled", True))
+        and bool(undistort_cfg.get("mask", True))
+        and str(calib_cfg.get("type", "")).lower() != "pinhole",
+        "expected_intrinsics_source": _expected_intrinsics_source(config),
     }
+
+
+def _expected_intrinsics_source(config: dict) -> str:
+    auto_init_cfg = config.get("auto_init", {})
+    calib_cfg = auto_init_cfg.get("camera_calibration") or {}
+    undistort_cfg = auto_init_cfg.get("undistort") or {}
+    if not calib_cfg.get("path"):
+        return "manual"
+    calib_type = str(calib_cfg.get("type", "fisheye")).strip().lower()
+    if calib_type == "pinhole":
+        return "pinhole_calibration"
+    if undistort_cfg.get("enabled", True):
+        return "fisheye_undistorted"
+    return "fisheye_raw_not_undistorted"
+
+
+def _decision_note(config: dict) -> str:
+    expected = _expected_current_result(config)
+    if expected["expected_frame_undistorted"]:
+        return (
+            "Current fisheye logic should undistort the RGB frame, undistort the mask "
+            "when undistort.mask=true, and write intrinsics with source=fisheye_undistorted."
+        )
+    return (
+        "Current raw/pinhole logic should keep frame_path equal to raw_frame_path, "
+        "keep the mask unchanged unless explicitly configured otherwise, and write "
+        f"intrinsics with source={expected['expected_intrinsics_source']}."
+    )
 
 
 def _raise_if_current_logic_is_unexpected(summary: dict) -> None:
     current = summary["current_config"]
     expected = summary["expected_current_result"]
-    if str(expected["camera_calibration.type"]).lower() != "pinhole":
-        return
-    if current["frame_undistorted"]:
-        raise SystemExit("Current pinhole config unexpectedly produced an undistorted frame.")
-    frame_check = current["checks"]["frame_matches_raw"]
-    if not frame_check.get("exact_equal"):
-        raise SystemExit("Current pinhole config changed the RGB frame; expected raw frame to pass through.")
-    mask_check = current["checks"].get("mask_matches_raw")
-    if mask_check is not None and not mask_check.get("exact_equal"):
-        raise SystemExit("Current pinhole config changed the mask; expected raw mask to pass through.")
-    if current["intrinsics_source"] != "pinhole_calibration":
+    if bool(current["frame_undistorted"]) != bool(expected["expected_frame_undistorted"]):
         raise SystemExit(
-            "Current pinhole config wrote an unexpected intrinsics source: "
-            f"{current['intrinsics_source']!r}"
+            "Current config produced unexpected frame undistortion state: "
+            f"{current['frame_undistorted']} vs expected {expected['expected_frame_undistorted']}."
+        )
+    frame_check = current["checks"]["frame_matches_raw"]
+    if expected["expected_frame_undistorted"] and frame_check.get("exact_equal"):
+        raise SystemExit("Current config expected an undistorted RGB frame, but runtime frame equals raw.")
+    if not expected["expected_frame_undistorted"] and not frame_check.get("exact_equal"):
+        raise SystemExit("Current config changed the RGB frame; expected raw frame to pass through.")
+    mask_check = current["checks"].get("mask_matches_raw")
+    if mask_check is not None:
+        if expected["expected_mask_undistorted"] and mask_check.get("exact_equal"):
+            raise SystemExit("Current config expected an undistorted mask, but runtime mask equals raw.")
+        if not expected["expected_mask_undistorted"] and not mask_check.get("exact_equal"):
+            raise SystemExit("Current config changed the mask; expected raw mask to pass through.")
+    if current["intrinsics_source"] != expected["expected_intrinsics_source"]:
+        raise SystemExit(
+            "Current config wrote an unexpected intrinsics source: "
+            f"{current['intrinsics_source']!r} vs expected {expected['expected_intrinsics_source']!r}"
         )
 
 
