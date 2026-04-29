@@ -61,6 +61,7 @@ def extract_first_frame_inputs(
         "intrinsics_path": camera_inputs["intrinsics_path"],
         "calibration": camera_inputs["calibration"],
         "undistorted": camera_inputs["undistorted"],
+        "preprocessing_debug": camera_inputs.get("preprocessing_debug"),
     }
 
 

@@ -28,12 +28,17 @@ auto_init:
     cx: 320.0
     cy: 240.0
   camera_calibration:
-    # Use K_new + D_raw as fisheye calibration for the raw 640x480 wrist frame.
-    # Runtime auto-init first undistorts RGB/mask, then passes the undistorted
-    # pinhole image and its new_K to Depth Anything 3 and FoundationPose.
+    # Use the original 1536x1536 fisheye calibration. The recorded wrist frame
+    # is the 1536x1536 fisheye image resized to 480x480, then centered in a
+    # 640x480 canvas with 80 px black borders on left/right. Runtime auto-init
+    # computes K_distorted_640 from K_raw_1536 before fisheye undistortion, then
+    # passes the undistorted 640x480 image and K_undistorted_640 to DA3/FP.
     type: fisheye
-    path: policy/Replay_Policy/auto_init/fisheye_calib_result_resized.npz
-    calibration_image_size: null
+    path: policy/Replay_Policy/auto_init/fisheye_calib_result.npz
+    raw_image_size: [1536, 1536]
+    resized_content_size: [480, 480]
+    distorted_image_size: [640, 480]
+    content_offset: [80, 0]
   undistort:
     enabled: true
     balance: 0.0

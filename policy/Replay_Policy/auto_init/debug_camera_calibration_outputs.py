@@ -177,6 +177,7 @@ def _run_calibration_pass(
         "intrinsics_json": intrinsics,
         "intrinsics_source": intrinsics.get("source"),
         "calibration": first_frame["calibration"],
+        "camera_preprocessing": first_frame.get("preprocessing_debug"),
         "copied_outputs": copied,
         "checks": {
             "frame_matches_raw": _compare_arrays(first_frame["raw_frame_path"], first_frame["frame_path"]),

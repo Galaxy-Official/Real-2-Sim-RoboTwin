@@ -122,6 +122,7 @@ def main() -> None:
             "intrinsics": first_frame["intrinsics"],
             "intrinsics_matrix": first_frame["intrinsics_matrix"],
             "calibration": first_frame["calibration"],
+            "camera_preprocessing": first_frame.get("preprocessing_debug"),
             "mask_path": None if mask_path is None else str(mask_path.resolve()),
             "mask_error": mask_error,
         },

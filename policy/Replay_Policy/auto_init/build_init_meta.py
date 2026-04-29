@@ -120,6 +120,7 @@ def main() -> None:
         "intrinsics": first_frame["intrinsics"],
         "intrinsics_matrix": first_frame["intrinsics_matrix"],
         "calibration": first_frame["calibration"],
+        "camera_preprocessing": first_frame.get("preprocessing_debug"),
         "cam_T_obj": np.asarray(cam_T_obj, dtype=float).tolist(),
         "cam_T_eef": np.asarray(cam_T_eef, dtype=float).tolist(),
         "camera_convention": camera_convention,

@@ -97,6 +97,7 @@ def main() -> None:
         intrinsics_path=Path(first_frame["intrinsics_path"]),
         mesh_path=mesh_path,
         first_frame_undistorted=first_frame["undistorted"],
+        camera_preprocessing=first_frame.get("preprocessing_debug"),
     )
     _write_input_overlay(
         image_path=Path(first_frame["frame_path"]),
@@ -216,6 +217,7 @@ def _summarize_inputs(
     intrinsics_path: Path,
     mesh_path: Path,
     first_frame_undistorted: bool,
+    camera_preprocessing: dict | None = None,
 ) -> dict:
     rgb = np.asarray(Image.open(image_path).convert("RGB"))
     depth = np.asarray(np.load(depth_path), dtype=np.float32)
@@ -229,6 +231,7 @@ def _summarize_inputs(
         "mask_path": str(mask_path.resolve()),
         "intrinsics_path": str(intrinsics_path.resolve()),
         "mesh_path": str(mesh_path.resolve()),
+        "camera_preprocessing": camera_preprocessing,
         "rgb_shape": list(rgb.shape),
         "depth_shape": list(depth.shape),
         "mask_shape": list(mask.shape),
